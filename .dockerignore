@@ -1,0 +1,32 @@
+# Build artifacts
+swallow-monitor
+swallow-monitor.exe
+swallow-monitor.exe~
+*.exe
+*.test
+
+# Runtime data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Local config with secrets
+config.yaml
+config.local.yaml
+*.local.yaml
+
+# VCS / editor / OS
+.git
+.gitignore
+.idea
+.vscode
+*.log
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

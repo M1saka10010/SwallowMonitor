@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SwallowMonitor</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script>
+    // Apply persisted theme before first paint to avoid a flash.
+    (function () {
+      var t = localStorage.getItem("theme");
+      if (t === "light" || t === "dark") {
+        document.documentElement.setAttribute("data-theme", t);
+      }
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <header>
+    <h1 id="homeLink">SwallowMonitor</h1>
+    <div class="actions">
+      <button id="themeBtn" class="theme-btn" title="切换主题">跟随系统</button>
+      <button id="manageBtn" class="hidden">主机管理</button>
+      <a id="loginLink" href="/login" class="link hidden">登录</a>
+      <a id="logoutLink" href="/logout" class="link hidden">退出</a>
+    </div>
+  </header>
+
+  <main>
+    <section id="overview">
+      <nav id="groupNav" class="group-nav"></nav>
+      <div id="groupList"></div>
+    </section>
+
+    <section id="detail" class="hidden">
+      <button id="backBtn" class="link">&larr; 返回概览</button>
+      <h2 id="detailName"></h2>
+      <div id="sysinfo" class="sysinfo"></div>
+      <div class="charts">
+        <div class="chart-box"><canvas id="cpuChart"></canvas></div>
+        <div class="chart-box"><canvas id="memChart"></canvas></div>
+        <div class="chart-box"><canvas id="netChart"></canvas></div>
+        <div class="chart-box"><canvas id="loadChart"></canvas></div>
+      </div>
+    </section>
+
+    <section id="manage" class="hidden">
+      <button id="manageBackBtn" class="link">&larr; 返回概览</button>
+      <h2>主机管理</h2>
+
+      <div class="manage-add">
+        <h3>添加主机</h3>
+        <form id="addForm">
+          <input id="newNick" placeholder="昵称" required />
+          <input id="newToken" placeholder="Token（留空自动生成）" />
+          <input id="newTags" placeholder="分组标签（逗号分隔，可留空）" />
+          <button type="submit">添加</button>
+        </form>
+        <div id="newTokenOut" class="install-out hidden">
+          <p class="install-hint">主机已添加。Token 仅显示一次，请使用下方命令在目标主机上一键安装 Agent。</p>
+          <div class="copy-row">
+            <span class="copy-label">Token</span>
+            <code id="tokenValue"></code>
+            <button type="button" class="copy-btn" data-copy="tokenValue">复制</button>
+          </div>
+          <div class="copy-row">
+            <span class="copy-label">安装命令</span>
+            <code id="installCmd"></code>
+            <button type="button" class="copy-btn" data-copy="installCmd">复制</button>
+          </div>
+        </div>
+      </div>
+
+      <h3>主机列表</h3>
+      <table id="hostTable">
+        <thead>
+          <tr><th>昵称</th><th>分组标签</th><th>Public ID</th><th>状态</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+# Binaries
+swallow-monitor
+swallow-monitor.exe
+swallow-monitor.exe~
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of `go tool cover`
+*.out
+coverage.*
+
+# Go workspace file
+go.work
+go.work.sum
+
+# SQLite database files (runtime data)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Local configuration (may contain GitHub OAuth secrets / tokens)
+config.yaml
+config.yml
+config.local.yaml
+*.local.yaml
+
+# Logs
+*.log
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

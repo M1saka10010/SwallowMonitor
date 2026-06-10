@@ -1,0 +1,22 @@
+# HTTP/WS 监听地址
+listen: ":8080"
+# 对外访问地址，用于拼接 GitHub OAuth 回调
+publicUrl: http://localhost:8080
+# SQLite 数据库文件路径
+# Docker 部署时请设为 /data/swallow.db（对应 compose 的持久化卷）
+dbPath: ./swallow.db
+# usage 历史保留天数（<=0 表示不清理）
+retentionDays: 7
+# 超过该秒数未上报且无活动连接判定离线
+offlineTimeout: 90
+
+# GitHub OAuth（留空 clientId 则禁用鉴权，仅供本地开发）
+github:
+  clientId: ""
+  clientSecret: ""
+  # 允许登录的 GitHub 用户名白名单；为空则允许任意登录用户
+  allowedUsers:
+    - your-github-username
+
+# 调试日志
+isDebug: true
