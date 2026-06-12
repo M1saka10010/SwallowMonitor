@@ -2,6 +2,11 @@ package store
 
 import "github.com/M1saka10010/SwallowMonitor/model"
 
+const (
+	rawUsageSpanSeconds     int64 = 3600
+	maxDownsampledUsageRows int64 = 720
+)
+
 // InsertUsage stores a system_usage sample for a host.
 func (s *Store) InsertUsage(publicID string, u *model.SystemUsage) error {
 	_, err := s.db.Exec(`INSERT INTO usages (
@@ -31,13 +36,50 @@ func (s *Store) LatestUsage(publicID string) (*model.SystemUsage, error) {
 
 // QueryUsage returns usage samples for a host within [from, to] ordered by ts.
 func (s *Store) QueryUsage(publicID string, from, to int64) ([]*model.SystemUsage, error) {
+	if to-from > rawUsageSpanSeconds {
+		return s.queryUsageSampled(publicID, from, to)
+	}
+	return s.queryUsageRaw(publicID, from, to)
+}
+
+func (s *Store) queryUsageRaw(publicID string, from, to int64) ([]*model.SystemUsage, error) {
 	rows, err := s.db.Query(`SELECT `+usageCols+` FROM usages
 		WHERE public_id = ? AND ts >= ? AND ts <= ? ORDER BY ts`, publicID, from, to)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanUsageRows(rows)
+}
 
+func (s *Store) queryUsageSampled(publicID string, from, to int64) ([]*model.SystemUsage, error) {
+	bucketSeconds := (to-from)/maxDownsampledUsageRows + 1
+	if bucketSeconds < 1 {
+		bucketSeconds = 1
+	}
+	rows, err := s.db.Query(`WITH scoped AS (
+			SELECT id, ((ts - ?) / ?) AS bucket FROM usages
+			WHERE public_id = ? AND ts >= ? AND ts <= ?
+		)
+		SELECT `+usageCols+` FROM usages
+		WHERE id IN (
+			SELECT MIN(id) FROM scoped
+			UNION
+			SELECT MAX(id) FROM scoped GROUP BY bucket
+		)
+		ORDER BY ts`, from, bucketSeconds, publicID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanUsageRows(rows)
+}
+
+func scanUsageRows(rows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+}) ([]*model.SystemUsage, error) {
 	var out []*model.SystemUsage
 	for rows.Next() {
 		u, err := scanUsage(rows)
