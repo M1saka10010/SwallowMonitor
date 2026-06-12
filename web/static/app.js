@@ -18,6 +18,8 @@ let detailLastTs = 0;
 let detailSampleInterval = 60;
 let zoomChart = null;
 let memoryTotalText = "";
+let overviewHosts = [];
+let overviewFilter = "";
 // publicId -> { el, refs, tags } for incremental overview updates.
 const cards = new Map();
 
@@ -32,71 +34,62 @@ async function api(path, opts) {
 
 // ---------- Overview ----------
 async function loadOverview() {
-  const hosts = await api("/api/hosts");
+  overviewHosts = await api("/api/hosts");
+  renderOverview();
+}
+
+function renderOverview() {
   const nav = $("#groupNav");
   const root = $("#groupList");
   nav.innerHTML = "";
   root.innerHTML = "";
   cards.clear();
-  if (!hosts.length) {
+  if (!overviewHosts.length) {
     root.innerHTML = '<p class="empty">暂无主机。</p>';
     return;
   }
 
-  // Group hosts by tag; a host with multiple tags appears under each.
-  const groups = new Map();
-  const addToGroup = (name, h) => {
-    if (!groups.has(name)) groups.set(name, []);
-    groups.get(name).push(h);
-  };
-  for (const h of hosts) {
-    const tags = h.tags && h.tags.length ? h.tags : [UNGROUPED];
-    for (const t of tags) addToGroup(t, h);
-  }
-
   // Sort group names; keep UNGROUPED last.
-  const names = [...groups.keys()].sort((a, b) => {
+  const tagCounts = new Map();
+  for (const h of overviewHosts) {
+    const tags = h.tags && h.tags.length ? h.tags : [UNGROUPED];
+    for (const t of tags) tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
+  }
+  const names = [...tagCounts.keys()].sort((a, b) => {
     if (a === UNGROUPED) return 1;
     if (b === UNGROUPED) return -1;
     return a.localeCompare(b);
   });
 
-  // Render the group navigation only when there is more than one group.
-  if (names.length > 1) {
-    names.forEach((name, i) => {
-      const chip = document.createElement("a");
-      chip.className = "group-chip";
-      chip.href = "#group-" + i;
-      chip.textContent = `${name} (${groups.get(name).length})`;
-      chip.onclick = (e) => {
-        e.preventDefault();
-        $("#group-" + i).scrollIntoView({ behavior: "smooth", block: "start" });
-      };
-      nav.appendChild(chip);
-    });
+  const addFilterChip = (name, count) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "group-chip" + (overviewFilter === name ? " active" : "");
+    chip.textContent = `${name || "全部"} (${count})`;
+    chip.onclick = () => {
+      overviewFilter = name;
+      renderOverview();
+    };
+    nav.appendChild(chip);
+  };
+  addFilterChip("", overviewHosts.length);
+  names.forEach((name) => addFilterChip(name, tagCounts.get(name)));
+
+  const visibleHosts = overviewFilter
+    ? overviewHosts.filter((h) => {
+      const tags = h.tags && h.tags.length ? h.tags : [UNGROUPED];
+      return tags.includes(overviewFilter);
+    })
+    : overviewHosts;
+
+  const grid = document.createElement("div");
+  grid.className = "cards";
+  for (const h of visibleHosts) {
+    const entry = card(h);
+    grid.appendChild(entry.el);
+    cards.set(h.publicId, [entry]);
   }
-
-  names.forEach((name, i) => {
-    const section = document.createElement("div");
-    section.className = "group";
-    section.id = "group-" + i;
-    const head = document.createElement("h2");
-    head.className = "group-title";
-    head.textContent = `${name} (${groups.get(name).length})`;
-    section.appendChild(head);
-
-    const grid = document.createElement("div");
-    grid.className = "cards";
-    for (const h of groups.get(name)) {
-      const entry = card(h);
-      grid.appendChild(entry.el);
-      // A host may render multiple cards (multi-tag); track them all.
-      if (!cards.has(h.publicId)) cards.set(h.publicId, []);
-      cards.get(h.publicId).push(entry);
-    }
-    section.appendChild(grid);
-    root.appendChild(section);
-  });
+  root.appendChild(grid);
 }
 
 function card(h) {

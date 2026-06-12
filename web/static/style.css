@@ -85,8 +85,9 @@ button:hover { opacity: .9; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .group-nav { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0 14px; margin-bottom: 6px; background: var(--bg); border-bottom: 1px solid var(--border); }
 .group-nav:empty { display: none; }
-.group-chip { font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; text-decoration: none; cursor: pointer; transition: border-color .15s, color .15s; }
+.group-chip { font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; text-decoration: none; cursor: pointer; font-weight: 400; transition: border-color .15s, color .15s; }
 .group-chip:hover { border-color: var(--accent); color: var(--accent); }
+.group-chip.active { background: var(--accent); color: #04222e; border-color: var(--accent); font-weight: 600; }
 .group { margin-bottom: 28px; scroll-margin-top: 64px; }
 .group-title { font-size: 14px; color: var(--muted); margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); font-weight: 600; }
 .empty { color: var(--muted); }
