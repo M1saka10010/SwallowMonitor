@@ -16,12 +16,6 @@ func (s *Store) InsertUsage(publicID string, u *model.SystemUsage) error {
 	return err
 }
 
-// UsagePoint is a stored usage sample with its public id.
-type UsagePoint struct {
-	PublicID string `json:"publicId"`
-	model.SystemUsage
-}
-
 // LatestUsage returns the most recent usage sample for a host, or nil if none.
 func (s *Store) LatestUsage(publicID string) (*model.SystemUsage, error) {
 	row := s.db.QueryRow(`SELECT `+usageCols+` FROM usages WHERE public_id = ? ORDER BY ts DESC LIMIT 1`, publicID)

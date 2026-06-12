@@ -186,6 +186,15 @@ func (s *Server) apiUsage(w http.ResponseWriter, r *http.Request, publicID strin
 	from := parseInt(q.Get("from"), now-3600)
 	to := parseInt(q.Get("to"), now)
 
+	// Clamp the requested span to a sane maximum (matches the largest UI range)
+	// to prevent oversized scans from hand-crafted requests.
+	if to < from {
+		from, to = to, from
+	}
+	if to-from > maxUsageSpan {
+		from = to - maxUsageSpan
+	}
+
 	points, err := s.store.QueryUsage(publicID, from, to)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -193,6 +202,9 @@ func (s *Server) apiUsage(w http.ResponseWriter, r *http.Request, publicID strin
 	}
 	writeJSON(w, http.StatusOK, points)
 }
+
+// maxUsageSpan caps the usage query window to 7 days.
+const maxUsageSpan int64 = 7 * 24 * 3600
 
 func (s *Server) isOnline(h *store.Host, now int64) bool {
 	if s.hub.IsOnline(h.PublicID) {

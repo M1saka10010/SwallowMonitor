@@ -37,11 +37,21 @@
       <button id="backBtn" class="link">&larr; 返回概览</button>
       <h2 id="detailName"></h2>
       <div id="sysinfo" class="sysinfo"></div>
+      <nav id="rangeNav" class="range-nav"></nav>
       <div class="charts">
-        <div class="chart-box"><canvas id="cpuChart"></canvas></div>
-        <div class="chart-box"><canvas id="memChart"></canvas></div>
-        <div class="chart-box"><canvas id="netChart"></canvas></div>
-        <div class="chart-box"><canvas id="loadChart"></canvas></div>
+        <div class="chart-box" data-chart="cpu" data-title="CPU"><canvas id="cpuChart"></canvas></div>
+        <div class="chart-box" data-chart="mem" data-title="内存"><div id="memTotal" class="chart-total hidden"></div><canvas id="memChart"></canvas></div>
+        <div class="chart-box" data-chart="net" data-title="网络"><canvas id="netChart"></canvas></div>
+        <div class="chart-box" data-chart="load" data-title="负载"><canvas id="loadChart"></canvas></div>
+      </div>
+      <div id="chartModal" class="chart-modal hidden" role="dialog" aria-modal="true" aria-labelledby="chartModalTitle">
+        <div class="chart-modal-panel">
+          <div class="chart-modal-head">
+            <h3 id="chartModalTitle"></h3>
+            <button id="chartModalClose" type="button" class="link" aria-label="关闭放大图">关闭</button>
+          </div>
+          <div class="chart-modal-body"><canvas id="zoomChart"></canvas></div>
+        </div>
       </div>
     </section>
 

@@ -14,6 +14,10 @@ let charts = {};
 let overviewSSE = null;
 let detailHost = null;
 let canManage = false;
+let detailLastTs = 0;
+let detailSampleInterval = 60;
+let zoomChart = null;
+let memoryTotalText = "";
 // publicId -> { el, refs, tags } for incremental overview updates.
 const cards = new Map();
 
@@ -200,10 +204,6 @@ function openOverviewStream() {
   };
 }
 
-function closeOverviewStream() {
-  if (overviewSSE) { overviewSSE.close(); overviewSSE = null; }
-}
-
 // ---------- View switching ----------
 function showView(id) {
   for (const v of ["overview", "detail", "manage"]) {
@@ -212,6 +212,15 @@ function showView(id) {
 }
 
 // ---------- Detail ----------
+const RANGES = [
+  { label: "5 分钟", seconds: 300 },
+  { label: "1 小时", seconds: 3600 },
+  { label: "3 小时", seconds: 10800 },
+  { label: "1 天", seconds: 86400 },
+  { label: "7 天", seconds: 604800 },
+];
+let rangeSeconds = 3600; // default 1h
+
 async function openDetail(publicId) {
   const h = await api("/api/hosts/" + publicId);
   showView("detail");
@@ -224,11 +233,71 @@ async function openDetail(publicId) {
   ];
   $("#sysinfo").innerHTML = info.map(([k, v]) => `<div><span>${k}</span>${escapeHtml(String(v ?? "-"))}</div>`).join("");
 
-  const now = Math.floor(Date.now() / 1000);
-  const points = await api(`/api/hosts/${publicId}/usage?from=${now - 3600}&to=${now}`) || [];
-  initCharts();
-  fillCharts(points);
   detailHost = publicId;
+  renderRangeNav();
+  initCharts();
+  await loadRange();
+}
+
+function renderRangeNav() {
+  const nav = $("#rangeNav");
+  nav.innerHTML = "";
+  for (const r of RANGES) {
+    const btn = document.createElement("button");
+    btn.className = "range-chip" + (r.seconds === rangeSeconds ? " active" : "");
+    btn.textContent = r.label;
+    btn.onclick = () => {
+      if (r.seconds === rangeSeconds) return;
+      rangeSeconds = r.seconds;
+      nav.querySelectorAll(".range-chip").forEach((c) => c.classList.remove("active"));
+      btn.classList.add("active");
+      loadRange();
+    };
+    nav.appendChild(btn);
+  }
+}
+
+async function loadRange() {
+  if (!detailHost) return;
+  const now = Math.floor(Date.now() / 1000);
+  const from = now - rangeSeconds;
+  const points = await api(`/api/hosts/${detailHost}/usage?from=${now - rangeSeconds}&to=${now}`) || [];
+  detailSampleInterval = estimateSampleInterval(points);
+  clearCharts();
+  setMemoryTotal(0);
+  setChartWindow(from, now);
+  if (!points.length) {
+    appendPoint(from, zeroUsage(from));
+    appendPoint(now, zeroUsage(now));
+    updateAll();
+    return;
+  }
+
+  setMemoryTotal(points[points.length - 1].memoryTotal || 0);
+  const firstTs = points[0].timestamp || 0;
+  const gapThreshold = Math.max(detailSampleInterval * 3, 60);
+  if (firstTs && firstTs - from > gapThreshold) {
+    appendPoint(from, zeroUsage(from));
+    appendOfflineSegment(from, firstTs);
+  }
+  for (const p of points) pushPoint(p, false);
+  appendTrailingOffline(now);
+  updateAll();
+}
+
+function estimateSampleInterval(points) {
+  const deltas = [];
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1].timestamp || 0;
+    const next = points[i].timestamp || 0;
+    const delta = next - prev;
+    if (delta > 0) deltas.push(delta);
+  }
+  if (!deltas.length) return 60;
+  deltas.sort((a, b) => a - b);
+  // Use a lower percentile and cap it. A single huge gap should not become the
+  // "normal" interval, otherwise offline periods would still be connected.
+  return Math.min(300, Math.max(1, deltas[Math.floor(deltas.length * 0.25)]));
 }
 
 function backToOverview() {
@@ -245,39 +314,216 @@ function initCharts() {
   const textColor = cssVar("--text");
   const mk = (id, datasets, fmt) => new Chart($("#" + id), {
     type: "line",
-    data: { labels: [], datasets },
+    data: { datasets },
     options: {
       animation: false, responsive: true,
       scales: {
-        x: { ticks: { color: muted, maxTicksLimit: 6 }, grid: { color: gridColor } },
+        x: {
+          type: "linear",
+          ticks: {
+            color: muted,
+            maxTicksLimit: 6,
+            callback: (value) => formatTs(Math.floor(value / 1000)),
+          },
+          grid: { color: gridColor },
+        },
         y: { ticks: { color: muted, callback: fmt }, grid: { color: gridColor }, beginAtZero: true },
       },
       plugins: { legend: { labels: { color: textColor } } },
     },
   });
-  charts.cpu = mk("cpuChart", [ds("CPU %", "#4cc2ff")], (v) => v + "%");
-  charts.mem = mk("memChart", [ds("内存", "#3fb950"), ds("Swap", "#f0883e")], fmtBytes);
-  charts.net = mk("netChart", [ds("下行/s", "#4cc2ff"), ds("上行/s", "#f85149")], fmtBytes);
-  charts.load = mk("loadChart", [ds("load1", "#4cc2ff"), ds("load5", "#3fb950"), ds("load15", "#f0883e")], (v) => v);
+  charts.cpu = mk("cpuChart", [ds("CPU %", "#4cc2ff"), offlineDs()], (v) => v + "%");
+  charts.mem = mk("memChart", [ds("内存", "#3fb950"), ds("Swap", "#f0883e"), offlineDs()], fmtBytes);
+  charts.net = mk("netChart", [ds("下行/s", "#4cc2ff"), ds("上行/s", "#f85149"), offlineDs()], fmtBytes);
+  charts.load = mk("loadChart", [ds("load1", "#4cc2ff"), ds("load5", "#3fb950"), ds("load15", "#f0883e"), offlineDs()], (v) => v);
+}
+
+function chartOptions(fmt) {
+  const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const muted = cssVar("--muted");
+  const gridColor = cssVar("--border");
+  const textColor = cssVar("--text");
+  return {
+    animation: false, responsive: true, maintainAspectRatio: false,
+    scales: {
+      x: {
+        type: "linear",
+        ticks: {
+          color: muted,
+          maxTicksLimit: 6,
+          callback: (value) => formatTs(Math.floor(value / 1000)),
+        },
+        grid: { color: gridColor },
+      },
+      y: { ticks: { color: muted, callback: fmt }, grid: { color: gridColor }, beginAtZero: true },
+    },
+    plugins: { legend: { labels: { color: textColor } } },
+  };
+}
+
+function chartMeta(key) {
+  return {
+    cpu: { title: "CPU", fmt: (v) => v + "%" },
+    mem: { title: "内存", fmt: fmtBytes },
+    net: { title: "网络", fmt: fmtBytes },
+    load: { title: "负载", fmt: (v) => v },
+  }[key];
+}
+
+function setMemoryTotal(total) {
+  memoryTotalText = total ? `总内存 ${fmtBytes(total)}` : "";
+  const el = $("#memTotal");
+  el.textContent = memoryTotalText;
+  el.classList.toggle("hidden", !memoryTotalText);
+}
+
+function cloneChartData(chart) {
+  return {
+    datasets: chart.data.datasets.map((d) => ({
+      ...d,
+      data: d.data.map((p) => ({ ...p })),
+    })),
+  };
+}
+
+function openChartModal(key, title) {
+  const source = charts[key];
+  const meta = chartMeta(key);
+  if (!source || !meta) return;
+  closeChartModal();
+  $("#chartModalTitle").textContent = key === "mem" && memoryTotalText ? `${title || meta.title} · ${memoryTotalText}` : title || meta.title;
+  $("#chartModal").classList.remove("hidden");
+  zoomChart = new Chart($("#zoomChart"), {
+    type: source.config.type,
+    data: cloneChartData(source),
+    options: chartOptions(meta.fmt),
+  });
+  zoomChart.options.scales.x.min = source.options.scales.x.min;
+  zoomChart.options.scales.x.max = source.options.scales.x.max;
+  zoomChart.update("none");
+}
+
+function closeChartModal() {
+  if (zoomChart) {
+    zoomChart.destroy();
+    zoomChart = null;
+  }
+  $("#chartModal").classList.add("hidden");
+}
+
+function initChartModal() {
+  document.querySelectorAll(".chart-box[data-chart]").forEach((box) => {
+    box.tabIndex = 0;
+    box.title = "点击放大";
+    box.addEventListener("click", () => openChartModal(box.dataset.chart, box.dataset.title));
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openChartModal(box.dataset.chart, box.dataset.title);
+      }
+    });
+  });
+  $("#chartModalClose").onclick = closeChartModal;
+  $("#chartModal").addEventListener("click", (e) => {
+    if (e.target.id === "chartModal") closeChartModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("#chartModal").classList.contains("hidden")) closeChartModal();
+  });
 }
 
 function ds(label, color) {
-  return { label, data: [], borderColor: color, backgroundColor: color + "33", borderWidth: 1.5, pointRadius: 0, tension: .25, fill: false };
+  return { label, data: [], borderColor: color, backgroundColor: color + "33", borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false, parsing: false, spanGaps: false };
 }
 
-function fillCharts(points) {
-  for (const p of points) pushPoint(p, false);
-  updateAll();
+function offlineDs() {
+  return { label: "离线", data: [], borderColor: "#8b949e", backgroundColor: "#8b949e33", borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false, parsing: false, spanGaps: false };
+}
+
+function formatTs(ts) {
+  const d = new Date(ts * 1000);
+  // For ranges spanning a day or more, include the date so labels aren't ambiguous.
+  if (rangeSeconds >= 86400) {
+    return d.toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleTimeString();
 }
 
 function pushPoint(u, update = true) {
-  const t = new Date((u.timestamp || 0) * 1000).toLocaleTimeString();
-  const cap = 600;
+  const ts = u.timestamp || 0;
+  if (!ts) return;
+
+  const gapThreshold = Math.max(detailSampleInterval * 3, 60);
+  if (detailLastTs && ts - detailLastTs > gapThreshold) {
+    appendOfflineSegment(detailLastTs, ts);
+  }
+
+  appendPoint(ts, u);
+  if (u.memoryTotal) setMemoryTotal(u.memoryTotal);
+  detailLastTs = ts;
+  if (update) {
+    setChartWindow(ts - rangeSeconds, ts);
+    updateAll();
+  }
+}
+
+function appendTrailingOffline(now) {
+  if (!detailLastTs) return;
+  const gapThreshold = Math.max(detailSampleInterval * 3, 60);
+  if (now - detailLastTs <= gapThreshold) return;
+  appendOfflineSegment(detailLastTs, now);
+  appendPoint(now, zeroUsage(now));
+  detailLastTs = now;
+}
+
+function setChartWindow(fromTs, toTs) {
+  for (const c of Object.values(charts)) {
+    c.options.scales.x.min = fromTs * 1000;
+    c.options.scales.x.max = toTs * 1000;
+  }
+}
+
+function appendOfflineSegment(fromTs, toTs) {
+  const start = fromTs + detailSampleInterval;
+  const end = toTs - detailSampleInterval;
+  if (end <= start) {
+    appendPoint(fromTs + 1, zeroUsage(fromTs + 1));
+    appendPoint(Math.max(fromTs + 2, toTs - 1), zeroUsage(Math.max(fromTs + 2, toTs - 1)));
+    return;
+  }
+  appendPoint(start, zeroUsage(start));
+  appendPoint(end, zeroUsage(end));
+}
+
+function zeroUsage(ts) {
+  return {
+    timestamp: ts,
+    offline: true,
+    cpuUsage: 0,
+    memoryUsed: 0,
+    swapUsed: 0,
+    diskUsed: 0,
+    netRecvSpeed: 0,
+    netSendSpeed: 0,
+    load1: 0,
+    load5: 0,
+    load15: 0,
+  };
+}
+
+function appendPoint(ts, u) {
+  const x = ts * 1000;
   const add = (c, vals) => {
-    c.data.labels.push(t);
-    vals.forEach((v, i) => c.data.datasets[i].data.push(v));
-    if (c.data.labels.length > cap) {
-      c.data.labels.shift();
+    if (!c._ts) c._ts = [];
+    c._ts.push(ts);
+    vals.forEach((v, i) => c.data.datasets[i].data.push({ x, y: u.offline ? null : v }));
+    // Last dataset is the gray offline segment. Keep normal series broken
+    // during offline periods and render only this gray 0-value line.
+    c.data.datasets[c.data.datasets.length - 1].data.push({ x, y: u.offline ? 0 : null });
+    // Drop points older than the selected window (keep a small margin).
+    const cutoff = ts - rangeSeconds;
+    while (c._ts.length && c._ts[0] < cutoff) {
+      c._ts.shift();
       c.data.datasets.forEach((d) => d.data.shift());
     }
   };
@@ -285,11 +531,18 @@ function pushPoint(u, update = true) {
   add(charts.mem, [u.memoryUsed || 0, u.swapUsed || 0]);
   add(charts.net, [u.netRecvSpeed || 0, u.netSendSpeed || 0]);
   add(charts.load, [u.load1 || 0, u.load5 || 0, u.load15 || 0]);
-  if (update) updateAll();
+}
+
+function clearCharts() {
+  detailLastTs = 0;
+  for (const c of Object.values(charts)) {
+    c._ts = [];
+    c.data.datasets.forEach((d) => (d.data.length = 0));
+  }
 }
 
 function updateAll() { Object.values(charts).forEach((c) => c.update("none")); }
-function destroyCharts() { Object.values(charts).forEach((c) => c.destroy()); charts = {}; }
+function destroyCharts() { Object.values(charts).forEach((c) => c.destroy()); charts = {}; closeChartModal(); }
 
 // ---------- Manage ----------
 function openManage() {
@@ -566,5 +819,6 @@ async function initAuth() {
 }
 
 initTheme();
+initChartModal();
 initAuth();
 loadOverview().then(openOverviewStream);
