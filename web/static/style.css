@@ -91,6 +91,7 @@ button:hover { opacity: .9; }
 .group { margin-bottom: 28px; scroll-margin-top: 64px; }
 .group-title { font-size: 14px; color: var(--muted); margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); font-weight: 600; }
 .empty { color: var(--muted); }
+.site-description { margin: 0 0 16px; color: var(--muted); font-size: 14px; line-height: 1.6; }
 .card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
   padding: 16px; cursor: pointer; transition: border-color .15s;
@@ -132,12 +133,34 @@ button:hover { opacity: .9; }
 .chart-modal-head h3 { margin: 0; font-size: 16px; }
 .chart-modal-body { height: min(68vh, 620px); }
 
-/* Manage page */
-#manage h2 { margin: 12px 0 16px; }
-#manage h3 { font-size: 14px; color: var(--muted); margin: 22px 0 10px; font-weight: 600; }
+/* Admin page */
+#admin h2 { margin: 12px 0 16px; }
+#admin h3 { font-size: 14px; color: var(--muted); margin: 22px 0 10px; font-weight: 600; }
+.admin-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.admin-tab { margin-bottom: -1px; color: var(--text); background: transparent; border: 1px solid transparent; border-bottom-color: var(--border); border-radius: 8px 8px 0 0; padding: 8px 14px; font-weight: 400; }
+.admin-tab:hover { color: var(--accent); opacity: 1; }
+.admin-tab.active { color: var(--accent); background: var(--panel); border-color: var(--border); border-bottom-color: var(--panel); font-weight: 600; }
+.admin-panel { margin-top: 8px; }
 .manage-add { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
 #addForm { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
-#addForm input { flex: 1 1 160px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 10px; }
+#addForm input, #addForm select { flex: 1 1 160px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 10px; }
+.settings-card { max-width: 720px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.notification-card { max-width: 860px; }
+.form-hint { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.form-hint code { color: var(--accent); }
+.settings-form { display: grid; gap: 14px; }
+.settings-form label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+.settings-form input, .settings-form textarea, .settings-form select { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 8px 10px; font: inherit; resize: vertical; }
+.settings-form input:focus, .settings-form textarea:focus, .settings-form select:focus { outline: none; border-color: var(--accent); }
+.check-row { display: flex; flex-wrap: wrap; gap: 16px; }
+.check-row label { display: flex; align-items: center; gap: 6px; color: var(--text); }
+.check-row input { width: auto; }
+.settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.settings-msg { color: var(--muted); font-size: 13px; }
+.settings-msg.success { color: var(--green); }
+.settings-msg.error { color: var(--red); }
+.secondary-btn { background: var(--panel); color: var(--accent); border: 1px solid var(--border); font-weight: 400; }
+.secondary-btn:hover { border-color: var(--accent); opacity: 1; }
 .install-out { background: var(--bg); border: 1px solid var(--green); border-radius: 6px; padding: 14px; margin: 12px 0 0; }
 .install-hint { margin: 0 0 12px; font-size: 13px; color: var(--text); }
 .copy-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
@@ -150,7 +173,8 @@ th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border);
 td { padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 th:last-child, td:last-child { text-align: right; white-space: nowrap; }
 .cell-tags .tag { margin-right: 4px; }
-td input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 8px; }
+.cell-url { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+td input, td select { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 6px 8px; }
 .edit, .save { color: var(--accent); cursor: pointer; }
 .install-link { color: var(--accent); cursor: pointer; }
 .install-row td { padding: 0 6px 12px; }

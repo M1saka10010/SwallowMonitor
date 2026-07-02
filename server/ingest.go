@@ -40,10 +40,12 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 	if s.hub.AddAgent(publicID, conn) {
 		s.hub.PublishOverview(map[string]any{"type": "status", "publicId": publicID, "online": true})
+		go s.notifyHostStatus(publicID, true)
 	}
 	defer func() {
 		if s.hub.RemoveAgent(publicID, conn) {
 			s.hub.PublishOverview(map[string]any{"type": "status", "publicId": publicID, "online": false})
+			go s.notifyHostStatus(publicID, false)
 		}
 	}()
 	s.debugf("report: agent connected publicID=%s", publicID)

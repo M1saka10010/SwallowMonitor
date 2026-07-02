@@ -20,6 +20,9 @@ let zoomChart = null;
 let memoryTotalText = "";
 let overviewHosts = [];
 let overviewFilter = "";
+let siteSettings = { siteName: "SwallowMonitor", siteDescription: "" };
+let notificationRules = [];
+let managedTags = [];
 // publicId -> { el, refs, tags } for incremental overview updates.
 const cards = new Map();
 
@@ -199,7 +202,7 @@ function openOverviewStream() {
 
 // ---------- View switching ----------
 function showView(id) {
-  for (const v of ["overview", "detail", "manage"]) {
+  for (const v of ["overview", "detail", "admin"]) {
     $("#" + v).classList.toggle("hidden", v !== id);
   }
 }
@@ -541,9 +544,28 @@ function destroyCharts() { Object.values(charts).forEach((c) => c.destroy()); ch
 function openManage() {
   if (!canManage) return;
   detailHost = null;
-  showView("manage");
+  showView("admin");
+  switchAdminTab("hosts");
   $("#newTokenOut").classList.add("hidden");
+  loadTags().then(() => renderTagOptions());
   loadHostTable();
+}
+
+function switchAdminTab(tab) {
+  const isSettings = tab === "settings";
+  const isNotifications = tab === "notifications";
+  const isTags = tab === "tags";
+  $("#hostsTab").classList.toggle("hidden", isSettings || isNotifications || isTags);
+  $("#tagsTab").classList.toggle("hidden", !isTags);
+  $("#settingsTab").classList.toggle("hidden", !isSettings);
+  $("#notificationsTab").classList.toggle("hidden", !isNotifications);
+  $("#hostsTabBtn").classList.toggle("active", !isSettings && !isNotifications && !isTags);
+  $("#tagsTabBtn").classList.toggle("active", isTags);
+  $("#settingsTabBtn").classList.toggle("active", isSettings);
+  $("#notificationsTabBtn").classList.toggle("active", isNotifications);
+  if (isSettings) fillSettingsForm();
+  if (isTags) loadTags().then(renderTagTable);
+  if (isNotifications) loadTags().then(() => { renderTagOptions(); loadNotificationRules(); });
 }
 
 async function loadHostTable() {
@@ -635,18 +657,18 @@ function toggleInstallRow(tr, h) {
 function renderRowEdit(tr, h) {
   tr.innerHTML = `
     <td><input class="edit-nick" value="" /></td>
-    <td><input class="edit-tags" placeholder="分组标签，逗号分隔" value="" /></td>
+    <td><select class="edit-tags" multiple></select></td>
     <td class="cell-id"></td>
     <td></td>
     <td><span class="save">保存</span> <span class="cancel">取消</span></td>`;
   tr.querySelector(".edit-nick").value = h.nickname;
-  tr.querySelector(".edit-tags").value = (h.tags || []).join(", ");
+  fillTagSelect(tr.querySelector(".edit-tags"), h.tags || [], false);
   tr.querySelector(".cell-id").textContent = h.publicId;
   tr.querySelector(".cell-id").style.color = "var(--muted)";
 
   const save = async () => {
     const nickname = tr.querySelector(".edit-nick").value.trim();
-    const tags = parseTags(tr.querySelector(".edit-tags").value);
+    const tags = selectedOptions(tr.querySelector(".edit-tags"));
     if (!nickname) { alert("昵称不能为空"); return; }
     try {
       await api("/api/hosts/" + h.publicId, {
@@ -665,15 +687,15 @@ function renderRowEdit(tr, h) {
   tr.querySelector(".edit-nick").focus();
 }
 
-function parseTags(s) {
-  return (s || "").split(",").map((t) => t.trim()).filter(Boolean);
+function selectedOptions(select) {
+  return [...select.selectedOptions].map((option) => option.value).filter(Boolean);
 }
 
 async function addHost(e) {
   e.preventDefault();
   const nickname = $("#newNick").value.trim();
   const token = $("#newToken").value.trim();
-  const tags = parseTags($("#newTags").value);
+  const tags = selectedOptions($("#newTags"));
   const h = await api("/api/hosts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -682,9 +704,130 @@ async function addHost(e) {
   showInstall(h.token);
   $("#newNick").value = "";
   $("#newToken").value = "";
-  $("#newTags").value = "";
+  [...$("#newTags").options].forEach((option) => { option.selected = false; });
   loadHostTable();
   loadOverview();
+}
+
+// ---------- Tags ----------
+async function loadTags() {
+  try {
+    managedTags = await api("/api/tags") || [];
+    renderTagOptions();
+    return managedTags;
+  } catch (err) {
+    showTagMsg("加载失败：" + err.message, true);
+    return [];
+  }
+}
+
+function renderTagOptions() {
+  fillTagSelect($("#newTags"), [], false);
+  const notifySelect = $("#notificationTag");
+  const selected = notifySelect.value;
+  fillTagSelect(notifySelect, [selected], true);
+}
+
+function fillTagSelect(select, selected, includeAll) {
+  if (!select) return;
+  const selectedSet = new Set(selected || []);
+  select.innerHTML = "";
+  if (includeAll) {
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = "全部主机";
+    select.appendChild(all);
+  }
+  for (const tag of managedTags) {
+    const option = document.createElement("option");
+    option.value = tag.name;
+    option.textContent = tag.name;
+    option.selected = selectedSet.has(tag.name);
+    select.appendChild(option);
+  }
+}
+
+function renderTagTable() {
+  const tb = $("#tagTable tbody");
+  tb.innerHTML = "";
+  if (!managedTags.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="3" class="muted">暂无标签。</td>';
+    tb.appendChild(tr);
+    return;
+  }
+  for (const tag of managedTags) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="cell-tag"></td>
+      <td class="muted">${tag.createdAt ? new Date(tag.createdAt * 1000).toLocaleString() : "-"}</td>
+      <td><span class="edit">编辑</span> <span class="del">删除</span></td>`;
+    tr.querySelector(".cell-tag").textContent = tag.name;
+    tr.querySelector(".edit").onclick = () => editTag(tag);
+    tr.querySelector(".del").onclick = () => deleteTag(tag);
+    tb.appendChild(tr);
+  }
+}
+
+async function saveTag(e) {
+  e.preventDefault();
+  const id = $("#tagId").value;
+  const name = $("#tagName").value.trim();
+  if (!name) {
+    showTagMsg("标签名称不能为空", true);
+    return;
+  }
+  try {
+    await api(id ? "/api/tags/" + id : "/api/tags", {
+      method: id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    resetTagForm();
+    showTagMsg(id ? "已保存" : "已添加", false);
+    await loadTags();
+    renderTagTable();
+    loadHostTable();
+    loadOverview();
+  } catch (err) {
+    showTagMsg("保存失败：" + err.message, true);
+  }
+}
+
+function editTag(tag) {
+  $("#tagId").value = tag.id;
+  $("#tagName").value = tag.name;
+  $("#tagSubmit").textContent = "保存标签";
+  $("#tagCancel").classList.remove("hidden");
+  $("#tagName").focus();
+}
+
+async function deleteTag(tag) {
+  if (!confirm("删除标签「" + tag.name + "」？主机上的该标签会被移除。")) return;
+  try {
+    await api("/api/tags/" + tag.id, { method: "DELETE" });
+    showTagMsg("已删除", false);
+    await loadTags();
+    renderTagTable();
+    loadHostTable();
+    loadOverview();
+  } catch (err) {
+    showTagMsg("删除失败：" + err.message, true);
+  }
+}
+
+function resetTagForm() {
+  $("#tagId").value = "";
+  $("#tagName").value = "";
+  $("#tagSubmit").textContent = "添加标签";
+  $("#tagCancel").classList.add("hidden");
+}
+
+function showTagMsg(text, isError) {
+  const msg = $("#tagMsg");
+  msg.textContent = text;
+  msg.className = "settings-msg " + (isError ? "error" : "success");
+  if (!isError) setTimeout(() => { if (msg.textContent === text) msg.textContent = ""; }, 1800);
 }
 
 // reportUrl derives the agent report endpoint from the current page location.
@@ -701,6 +844,179 @@ function showInstall(token) {
   $("#tokenValue").textContent = token;
   $("#installCmd").textContent = installCommand(token);
   $("#newTokenOut").classList.remove("hidden");
+}
+
+// ---------- Site settings ----------
+async function loadSettings() {
+  try {
+    const settings = await api("/api/settings");
+    applySettings(settings);
+  } catch {
+    applySettings(siteSettings);
+  }
+}
+
+function applySettings(settings) {
+  siteSettings = {
+    siteName: (settings.siteName || "SwallowMonitor").trim() || "SwallowMonitor",
+    siteDescription: (settings.siteDescription || "").trim(),
+  };
+  document.title = siteSettings.siteName;
+  $("#homeLink").textContent = siteSettings.siteName;
+  const desc = $("#siteDescriptionText");
+  desc.textContent = siteSettings.siteDescription;
+  desc.classList.toggle("hidden", !siteSettings.siteDescription);
+  fillSettingsForm();
+}
+
+function fillSettingsForm() {
+  const name = $("#siteName");
+  const description = $("#siteDescription");
+  if (!name || !description) return;
+  name.value = siteSettings.siteName;
+  description.value = siteSettings.siteDescription;
+}
+
+async function saveSettings(e) {
+  e.preventDefault();
+  const msg = $("#settingsMsg");
+  const siteName = $("#siteName").value.trim();
+  const siteDescription = $("#siteDescription").value.trim();
+  if (!siteName) {
+    msg.textContent = "网站名称不能为空";
+    msg.className = "settings-msg error";
+    return;
+  }
+  try {
+    const settings = await api("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ siteName, siteDescription }),
+    });
+    applySettings(settings);
+    msg.textContent = "已保存";
+    msg.className = "settings-msg success";
+    setTimeout(() => { if (msg.textContent === "已保存") msg.textContent = ""; }, 1800);
+  } catch (err) {
+    msg.textContent = "保存失败：" + err.message;
+    msg.className = "settings-msg error";
+  }
+}
+
+// ---------- Notifications ----------
+async function loadNotificationRules() {
+  try {
+    notificationRules = await api("/api/notifications") || [];
+    renderNotificationRules();
+  } catch (err) {
+    showNotificationMsg("加载失败：" + err.message, true);
+  }
+}
+
+function renderNotificationRules() {
+  const tb = $("#notificationTable tbody");
+  tb.innerHTML = "";
+  if (!notificationRules.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="5" class="muted">暂无通知规则。</td>';
+    tb.appendChild(tr);
+    return;
+  }
+  for (const rule of notificationRules) {
+    const tr = document.createElement("tr");
+    const events = [];
+    if (rule.notifyOnline) events.push("上线");
+    if (rule.notifyOffline) events.push("离线");
+    tr.innerHTML = `
+      <td class="cell-tag"></td>
+      <td class="cell-url"></td>
+      <td>${events.join("、") || "-"}</td>
+      <td>${rule.enabled ? "启用" : "停用"}</td>
+      <td><span class="edit">编辑</span> <span class="del">删除</span></td>`;
+    tr.querySelector(".cell-tag").textContent = rule.tag || "全部主机";
+    tr.querySelector(".cell-url").textContent = rule.url;
+    tr.querySelector(".cell-url").title = rule.url;
+    tr.querySelector(".edit").onclick = () => editNotificationRule(rule);
+    tr.querySelector(".del").onclick = () => deleteNotificationRule(rule);
+    tb.appendChild(tr);
+  }
+}
+
+async function saveNotificationRule(e) {
+  e.preventDefault();
+  const id = $("#notificationId").value;
+  const rule = {
+    tag: $("#notificationTag").value.trim(),
+    url: $("#notificationUrl").value.trim(),
+    notifyOnline: $("#notifyOnline").checked,
+    notifyOffline: $("#notifyOffline").checked,
+    enabled: $("#notificationEnabled").checked,
+  };
+  if (!rule.url) {
+    showNotificationMsg("通知 URL 不能为空", true);
+    return;
+  }
+  if (!rule.url.includes("%text%")) {
+    showNotificationMsg("通知 URL 必须包含 %text%", true);
+    return;
+  }
+  if (!rule.notifyOnline && !rule.notifyOffline) {
+    showNotificationMsg("至少选择一种通知事件", true);
+    return;
+  }
+  try {
+    await api(id ? "/api/notifications/" + id : "/api/notifications", {
+      method: id ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rule),
+    });
+    resetNotificationForm();
+    showNotificationMsg(id ? "已保存" : "已添加", false);
+    loadNotificationRules();
+  } catch (err) {
+    showNotificationMsg("保存失败：" + err.message, true);
+  }
+}
+
+function editNotificationRule(rule) {
+  $("#notificationId").value = rule.id;
+  $("#notificationTag").value = rule.tag || "";
+  $("#notificationUrl").value = rule.url || "";
+  $("#notifyOnline").checked = !!rule.notifyOnline;
+  $("#notifyOffline").checked = !!rule.notifyOffline;
+  $("#notificationEnabled").checked = !!rule.enabled;
+  $("#notificationSubmit").textContent = "保存规则";
+  $("#notificationCancel").classList.remove("hidden");
+  $("#notificationUrl").focus();
+}
+
+async function deleteNotificationRule(rule) {
+  if (!confirm("删除这条通知规则？")) return;
+  try {
+    await api("/api/notifications/" + rule.id, { method: "DELETE" });
+    showNotificationMsg("已删除", false);
+    loadNotificationRules();
+  } catch (err) {
+    showNotificationMsg("删除失败：" + err.message, true);
+  }
+}
+
+function resetNotificationForm() {
+  $("#notificationId").value = "";
+  $("#notificationTag").value = "";
+  $("#notificationUrl").value = "";
+  $("#notifyOnline").checked = true;
+  $("#notifyOffline").checked = true;
+  $("#notificationEnabled").checked = true;
+  $("#notificationSubmit").textContent = "添加规则";
+  $("#notificationCancel").classList.add("hidden");
+}
+
+function showNotificationMsg(text, isError) {
+  const msg = $("#notificationMsg");
+  msg.textContent = text;
+  msg.className = "settings-msg " + (isError ? "error" : "success");
+  if (!isError) setTimeout(() => { if (msg.textContent === text) msg.textContent = ""; }, 1800);
 }
 
 async function copyText(text, btn) {
@@ -786,6 +1102,14 @@ $("#manageBackBtn").onclick = backToOverview;
 $("#homeLink").onclick = backToOverview;
 $("#backBtn").onclick = backToOverview;
 $("#addForm").onsubmit = addHost;
+$("#tagForm").onsubmit = saveTag;
+$("#tagCancel").onclick = resetTagForm;
+$("#settingsForm").onsubmit = saveSettings;
+$("#notificationForm").onsubmit = saveNotificationRule;
+$("#notificationCancel").onclick = resetNotificationForm;
+document.querySelectorAll(".admin-tab[data-admin-tab]").forEach((btn) => {
+  btn.onclick = () => switchAdminTab(btn.dataset.adminTab);
+});
 
 // Copy buttons inside the install block (event delegation).
 $("#newTokenOut").addEventListener("click", (e) => {
@@ -814,4 +1138,5 @@ async function initAuth() {
 initTheme();
 initChartModal();
 initAuth();
+loadSettings();
 loadOverview().then(openOverviewStream);

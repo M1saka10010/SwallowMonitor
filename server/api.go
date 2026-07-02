@@ -26,6 +26,66 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 1 && parts[0] == "me":
 		s.apiMe(w, r)
 
+	case len(parts) == 1 && parts[0] == "settings":
+		switch r.Method {
+		case http.MethodGet:
+			s.apiGetSettings(w, r)
+		case http.MethodPatch:
+			s.apiUpdateSettings(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+
+	case len(parts) == 1 && parts[0] == "notifications":
+		switch r.Method {
+		case http.MethodGet:
+			s.apiListNotifications(w, r)
+		case http.MethodPost:
+			s.apiCreateNotification(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+
+	case len(parts) == 2 && parts[0] == "notifications":
+		id, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		switch r.Method {
+		case http.MethodPatch:
+			s.apiUpdateNotification(w, r, id)
+		case http.MethodDelete:
+			s.apiDeleteNotification(w, r, id)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+
+	case len(parts) == 1 && parts[0] == "tags":
+		switch r.Method {
+		case http.MethodGet:
+			s.apiListTags(w, r)
+		case http.MethodPost:
+			s.apiCreateTag(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+
+	case len(parts) == 2 && parts[0] == "tags":
+		id, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		switch r.Method {
+		case http.MethodPatch:
+			s.apiUpdateTag(w, r, id)
+		case http.MethodDelete:
+			s.apiDeleteTag(w, r, id)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+
 	case len(parts) == 1 && parts[0] == "hosts":
 		switch r.Method {
 		case http.MethodGet:
@@ -72,6 +132,212 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		resp["user"] = user
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) apiGetSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.store.GetSiteSettings()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (s *Server) apiUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	var body store.SiteSettings
+	if err := decodeJSON(r.Body, &body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	body.SiteName = strings.TrimSpace(body.SiteName)
+	body.SiteDescription = strings.TrimSpace(body.SiteDescription)
+	if body.SiteName == "" {
+		http.Error(w, "siteName required", http.StatusBadRequest)
+		return
+	}
+	if len([]rune(body.SiteName)) > 60 {
+		http.Error(w, "siteName too long", http.StatusBadRequest)
+		return
+	}
+	if len([]rune(body.SiteDescription)) > 200 {
+		http.Error(w, "siteDescription too long", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.UpdateSiteSettings(body); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+func (s *Server) apiListNotifications(w http.ResponseWriter, r *http.Request) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	rules, err := s.store.ListNotificationRules()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, rules)
+}
+
+func (s *Server) apiCreateNotification(w http.ResponseWriter, r *http.Request) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	var body store.NotificationRule
+	if err := decodeJSON(r.Body, &body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	rule, msg := normalizeNotificationRule(body)
+	if msg != "" {
+		http.Error(w, msg, http.StatusBadRequest)
+		return
+	}
+	created, err := s.store.CreateNotificationRule(rule)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (s *Server) apiUpdateNotification(w http.ResponseWriter, r *http.Request, id int64) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	var body store.NotificationRule
+	if err := decodeJSON(r.Body, &body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	body.ID = id
+	rule, msg := normalizeNotificationRule(body)
+	if msg != "" {
+		http.Error(w, msg, http.StatusBadRequest)
+		return
+	}
+	if err := s.store.UpdateNotificationRule(rule); errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	updated, err := s.store.GetNotificationRule(id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (s *Server) apiDeleteNotification(w http.ResponseWriter, r *http.Request, id int64) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	if err := s.store.DeleteNotificationRule(id); errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) apiListTags(w http.ResponseWriter, r *http.Request) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	tags, err := s.store.ListTags()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, tags)
+}
+
+func (s *Server) apiCreateTag(w http.ResponseWriter, r *http.Request) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r.Body, &body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if len([]rune(name)) > 40 {
+		http.Error(w, "name too long", http.StatusBadRequest)
+		return
+	}
+	tag, err := s.store.CreateTag(name)
+	if err != nil {
+		http.Error(w, "create failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusCreated, tag)
+}
+
+func (s *Server) apiUpdateTag(w http.ResponseWriter, r *http.Request, id int64) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r.Body, &body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if len([]rune(name)) > 40 {
+		http.Error(w, "name too long", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.UpdateTag(id, name); errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "update failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	tag, err := s.store.GetTag(id)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, tag)
+}
+
+func (s *Server) apiDeleteTag(w http.ResponseWriter, r *http.Request, id int64) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	if err := s.store.DeleteTag(id); errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) apiListHosts(w http.ResponseWriter, r *http.Request) {

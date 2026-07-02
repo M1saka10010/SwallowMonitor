@@ -79,6 +79,29 @@ func (s *Store) migrate() error {
 			load15 REAL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_usages_pub_ts ON usages(public_id, ts)`,
+		`CREATE TABLE IF NOT EXISTS tags (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS host_tags (
+			public_id TEXT NOT NULL,
+			tag_id INTEGER NOT NULL,
+			PRIMARY KEY(public_id, tag_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS notification_rules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tag TEXT NOT NULL,
+			url TEXT NOT NULL,
+			notify_online INTEGER NOT NULL DEFAULT 1,
+			notify_offline INTEGER NOT NULL DEFAULT 1,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at INTEGER NOT NULL
+		)`,
 	}
 	for _, q := range stmts {
 		if _, err := s.db.Exec(q); err != nil {
@@ -87,6 +110,9 @@ func (s *Store) migrate() error {
 	}
 	// Add columns that may be missing on databases created by older versions.
 	s.ensureColumn("hosts", "tags", "TEXT")
+	if err := s.migrateHostTags(); err != nil {
+		return err
+	}
 	return nil
 }
 

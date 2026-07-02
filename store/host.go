@@ -69,6 +69,10 @@ func randomHex(n int) (string, error) {
 // CreateHost inserts a new host. If token is empty, one is generated.
 // Returns the created host including its token.
 func (s *Store) CreateHost(nickname, token string, tags []string) (*Host, error) {
+	existingTags, err := s.existingTagNames(tags)
+	if err != nil {
+		return nil, err
+	}
 	publicID, err := randomHex(8) // 16 hex chars
 	if err != nil {
 		return nil, err
@@ -82,18 +86,25 @@ func (s *Store) CreateHost(nickname, token string, tags []string) (*Host, error)
 	now := time.Now().Unix()
 	_, err = s.db.Exec(
 		`INSERT INTO hosts (public_id, token, nickname, tags, created_at) VALUES (?, ?, ?, ?, ?)`,
-		publicID, token, nickname, encodeTags(tags), now,
+		publicID, token, nickname, encodeTags(nil), now,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Host{PublicID: publicID, Token: token, Nickname: nickname, Tags: tags, CreatedAt: now}, nil
+	if err := s.replaceHostTags(publicID, existingTags); err != nil {
+		return nil, err
+	}
+	return &Host{PublicID: publicID, Token: token, Nickname: nickname, Tags: existingTags, CreatedAt: now}, nil
 }
 
 // UpdateHost updates a host's nickname and tags by public id.
 func (s *Store) UpdateHost(publicID, nickname string, tags []string) error {
+	existingTags, err := s.existingTagNames(tags)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.Exec(`UPDATE hosts SET nickname = ?, tags = ? WHERE public_id = ?`,
-		nickname, encodeTags(tags), publicID)
+		nickname, encodeTags(nil), publicID)
 	if err != nil {
 		return err
 	}
@@ -101,7 +112,7 @@ func (s *Store) UpdateHost(publicID, nickname string, tags []string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return s.replaceHostTags(publicID, existingTags)
 }
 
 // DeleteHost removes a host and its usage history.
@@ -115,6 +126,7 @@ func (s *Store) DeleteHost(publicID string) error {
 		return ErrNotFound
 	}
 	_, _ = s.db.Exec(`DELETE FROM usages WHERE public_id = ?`, publicID)
+	_, _ = s.db.Exec(`DELETE FROM host_tags WHERE public_id = ?`, publicID)
 	return nil
 }
 
@@ -154,7 +166,10 @@ func (s *Store) ListHosts() ([]*Host, error) {
 		}
 		hosts = append(hosts, h)
 	}
-	return hosts, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return hosts, s.loadTagsForHosts(hosts)
 }
 
 // GetHost returns a single host by public id. The token is included; callers
@@ -165,7 +180,13 @@ func (s *Store) GetHost(publicID string) (*Host, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return h, err
+	if err != nil {
+		return nil, err
+	}
+	if err := s.loadTagsForHosts([]*Host{h}); err != nil {
+		return nil, err
+	}
+	return h, nil
 }
 
 // PublicIDByToken resolves a public id from an agent token. Returns ErrNotFound

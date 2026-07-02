@@ -21,7 +21,7 @@
     <h1 id="homeLink">SwallowMonitor</h1>
     <div class="actions">
       <button id="themeBtn" class="theme-btn" title="切换主题">跟随系统</button>
-      <button id="manageBtn" class="hidden">主机管理</button>
+      <button id="manageBtn" class="hidden">后台管理</button>
       <a id="loginLink" href="/login" class="link hidden">登录</a>
       <a id="logoutLink" href="/logout" class="link hidden">退出</a>
     </div>
@@ -29,6 +29,7 @@
 
   <main>
     <section id="overview">
+      <p id="siteDescriptionText" class="site-description hidden"></p>
       <nav id="groupNav" class="group-nav"></nav>
       <div id="groupList"></div>
     </section>
@@ -55,40 +56,133 @@
       </div>
     </section>
 
-    <section id="manage" class="hidden">
+    <section id="admin" class="hidden">
       <button id="manageBackBtn" class="link">&larr; 返回概览</button>
-      <h2>主机管理</h2>
+      <h2>后台管理</h2>
+      <nav class="admin-tabs" aria-label="后台管理标签页">
+        <button id="hostsTabBtn" type="button" class="admin-tab active" data-admin-tab="hosts">主机管理</button>
+        <button id="tagsTabBtn" type="button" class="admin-tab" data-admin-tab="tags">标签管理</button>
+        <button id="settingsTabBtn" type="button" class="admin-tab" data-admin-tab="settings">网站设置</button>
+        <button id="notificationsTabBtn" type="button" class="admin-tab" data-admin-tab="notifications">状态通知</button>
+      </nav>
 
-      <div class="manage-add">
-        <h3>添加主机</h3>
-        <form id="addForm">
-          <input id="newNick" placeholder="昵称" required />
-          <input id="newToken" placeholder="Token（留空自动生成）" />
-          <input id="newTags" placeholder="分组标签（逗号分隔，可留空）" />
-          <button type="submit">添加</button>
-        </form>
-        <div id="newTokenOut" class="install-out hidden">
-          <p class="install-hint">主机已添加。Token 仅显示一次，请使用下方命令在目标主机上一键安装 Agent。</p>
-          <div class="copy-row">
-            <span class="copy-label">Token</span>
-            <code id="tokenValue"></code>
-            <button type="button" class="copy-btn" data-copy="tokenValue">复制</button>
+      <div id="hostsTab" class="admin-panel">
+        <div class="manage-add">
+          <h3>添加主机</h3>
+          <form id="addForm">
+            <input id="newNick" placeholder="昵称" required />
+            <input id="newToken" placeholder="Token（留空自动生成）" />
+            <select id="newTags" multiple aria-label="主机标签"></select>
+            <button type="submit">添加</button>
+          </form>
+          <div id="newTokenOut" class="install-out hidden">
+            <p class="install-hint">主机已添加。Token 仅显示一次，请使用下方命令在目标主机上一键安装 Agent。</p>
+            <div class="copy-row">
+              <span class="copy-label">Token</span>
+              <code id="tokenValue"></code>
+              <button type="button" class="copy-btn" data-copy="tokenValue">复制</button>
+            </div>
+            <div class="copy-row">
+              <span class="copy-label">安装命令</span>
+              <code id="installCmd"></code>
+              <button type="button" class="copy-btn" data-copy="installCmd">复制</button>
+            </div>
           </div>
-          <div class="copy-row">
-            <span class="copy-label">安装命令</span>
-            <code id="installCmd"></code>
-            <button type="button" class="copy-btn" data-copy="installCmd">复制</button>
-          </div>
+        </div>
+
+        <h3>主机列表</h3>
+        <table id="hostTable">
+          <thead>
+            <tr><th>昵称</th><th>分组标签</th><th>Public ID</th><th>状态</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="tagsTab" class="admin-panel hidden">
+        <div class="settings-card">
+          <h3>标签管理</h3>
+          <p class="form-hint">标签需要先在这里创建，之后才能分配给主机或用于状态通知匹配。</p>
+          <form id="tagForm" class="settings-form">
+            <input id="tagId" type="hidden" />
+            <label>
+              <span>标签名称</span>
+              <input id="tagName" maxlength="40" placeholder="例如 prod" required />
+            </label>
+            <div class="settings-actions">
+              <button id="tagSubmit" type="submit">添加标签</button>
+              <button id="tagCancel" type="button" class="secondary-btn hidden">取消编辑</button>
+              <span id="tagMsg" class="settings-msg" aria-live="polite"></span>
+            </div>
+          </form>
+        </div>
+
+        <h3>标签列表</h3>
+        <table id="tagTable">
+          <thead>
+            <tr><th>名称</th><th>创建时间</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div id="settingsTab" class="admin-panel hidden">
+        <div class="settings-card">
+          <h3>网站设置</h3>
+          <form id="settingsForm" class="settings-form">
+            <label>
+              <span>网站名称</span>
+              <input id="siteName" maxlength="60" placeholder="网站名称" required />
+            </label>
+            <label>
+              <span>网站描述</span>
+              <textarea id="siteDescription" maxlength="200" rows="4" placeholder="展示在首页主机列表上方，可留空"></textarea>
+            </label>
+            <div class="settings-actions">
+              <button type="submit">保存设置</button>
+              <span id="settingsMsg" class="settings-msg" aria-live="polite"></span>
+            </div>
+          </form>
         </div>
       </div>
 
-      <h3>主机列表</h3>
-      <table id="hostTable">
-        <thead>
-          <tr><th>昵称</th><th>分组标签</th><th>Public ID</th><th>状态</th><th></th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+      <div id="notificationsTab" class="admin-panel hidden">
+        <div class="settings-card notification-card">
+          <h3>状态通知</h3>
+          <p class="form-hint">按主机标签匹配状态变更。标签留空表示全部主机，通知 URL 必须包含 <code>%text%</code>。</p>
+          <form id="notificationForm" class="settings-form">
+            <input id="notificationId" type="hidden" />
+            <label>
+              <span>匹配标签</span>
+              <select id="notificationTag">
+                <option value="">全部主机</option>
+              </select>
+            </label>
+            <label>
+              <span>通知 URL</span>
+              <input id="notificationUrl" placeholder="https://example.com/send?text=%text%" required />
+            </label>
+            <div class="check-row">
+              <label><input id="notifyOnline" type="checkbox" checked /> 上线通知</label>
+              <label><input id="notifyOffline" type="checkbox" checked /> 离线通知</label>
+              <label><input id="notificationEnabled" type="checkbox" checked /> 启用</label>
+            </div>
+            <div class="settings-actions">
+              <button id="notificationSubmit" type="submit">添加规则</button>
+              <button id="notificationCancel" type="button" class="secondary-btn hidden">取消编辑</button>
+              <span id="notificationMsg" class="settings-msg" aria-live="polite"></span>
+            </div>
+          </form>
+        </div>
+
+        <h3>通知规则</h3>
+        <table id="notificationTable">
+          <thead>
+            <tr><th>标签</th><th>URL</th><th>事件</th><th>状态</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
   </main>
 
