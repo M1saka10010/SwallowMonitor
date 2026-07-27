@@ -2,6 +2,45 @@
 
 本文档只描述 SwallowMonitor 的自动化测试体系、运行命令、覆盖范围和新增测试规范。
 
+## Web 前端开发与验证
+
+Web 面板源码位于 `frontend/`，使用 React、TypeScript、Vite 和 Tailwind CSS。生产构建输出到 `web/static/`，随后由 Go `embed.FS` 编入单个二进制；`web/static/` 是提交到仓库的生成目录，不应手工修改。
+
+前置环境为 Node.js 24、npm 11 和 Go 1.25。安装并运行前端检查：
+
+```bash
+cd frontend
+npm ci
+npm test
+npm run build
+```
+
+`npm run build` 会先执行 TypeScript 严格检查，再生成生产资源。修改 `frontend/src` 后必须重新执行该命令，确保提交的 `web/static` 与源码同步。
+
+本地联调使用两个终端：
+
+```bash
+# 终端 1：仓库根目录
+go run . -c config.yaml
+
+# 终端 2
+cd frontend
+npm run dev
+```
+
+Vite 会将 `/api`、`/events`、OAuth 路径和 `/report` 代理到 `http://localhost:8080`。生产形态验证应先运行前端构建，再从 Go 服务访问根页面，不能只验证 Vite 开发服务器。
+
+发布前 Web 检查：
+
+1. `cd frontend && npm test && npm run build`
+2. 回到仓库根目录执行 `go test ./...`
+3. 执行 `go build .`，确认嵌入资源可编译
+4. 执行 Docker build，确认 Node → Go → Alpine 三阶段构建
+5. 在 375px、768px、1440px 下验证概览、详情与后台
+6. 验证 auto/light/dark、五档图表范围、SSE 实时更新、OAuth 开关和四类后台 CRUD
+
+前端测试重点覆盖格式化、SSE 消息解析和图表离线区间算法；Go 静态资源测试会从生成的 HTML 动态提取哈希 JS/CSS，不依赖固定文件名。
+
 ## 1. 测试目标
 
 - 自动验证 SQLite 数据存储层的 CRUD、迁移和关联关系。

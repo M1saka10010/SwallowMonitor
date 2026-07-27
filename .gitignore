@@ -38,6 +38,13 @@ config.local.yaml
 # Editor / OS
 .idea/
 .vscode/
+.mimocode/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Frontend local dependencies and reports
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/*.tsbuildinfo

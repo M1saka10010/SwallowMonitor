@@ -26,7 +26,12 @@ config.local.yaml
 .DS_Store
 Thumbs.db
 
-# Docker
-Dockerfile
+# Frontend local dependencies and reports
+frontend/node_modules
+frontend/dist
+frontend/coverage
+web/static
+
+# Docker metadata is available to the builder, but is not copied into images.
 docker-compose.yml
 .dockerignore

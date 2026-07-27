@@ -1,6 +1,16 @@
-# syntax=docker/dockerfile:1
+# ---- Frontend build stage ----
+FROM node:24-alpine AS frontend-builder
 
-# ---- Build stage ----
+WORKDIR /src/frontend
+
+# Cache npm dependencies first and require the committed lockfile.
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+# ---- Go build stage ----
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
@@ -11,6 +21,8 @@ RUN go mod download
 
 # Build the static binary (modernc.org/sqlite is pure Go, no CGO needed).
 COPY . .
+# Always embed freshly built frontend assets instead of relying on committed output.
+COPY --from=frontend-builder /src/web/static ./web/static
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" -o /out/swallow-monitor .
 
 # ---- Runtime stage ----

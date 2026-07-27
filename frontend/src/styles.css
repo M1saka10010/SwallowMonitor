@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+:root {
+  --canvas: #f4f4f1;
+  --surface: #ffffff;
+  --surface-muted: #ecece8;
+  --text: #171714;
+  --text-muted: #696963;
+  --border: #d7d7d1;
+  --border-strong: #adada5;
+  --accent: #2457d6;
+  --success: #267a50;
+  --warning: #9a6500;
+  --danger: #be3b34;
+  --offline: #85857e;
+  --chart-blue: #3478d4;
+  --chart-green: #398760;
+  --chart-orange: #b56a28;
+  --chart-red: #c64b45;
+  --chart-gray: #85857e;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --canvas: #11110f;
+  --surface: #181816;
+  --surface-muted: #20201d;
+  --text: #f1f1ec;
+  --text-muted: #a4a49c;
+  --border: #32322e;
+  --border-strong: #55554e;
+  --accent: #6f91f2;
+  --success: #55a97a;
+  --warning: #d0a04a;
+  --danger: #e06a62;
+  --offline: #77776f;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --canvas: #11110f;
+    --surface: #181816;
+    --surface-muted: #20201d;
+    --text: #f1f1ec;
+    --text-muted: #a4a49c;
+    --border: #32322e;
+    --border-strong: #55554e;
+    --accent: #6f91f2;
+    --success: #55a97a;
+    --warning: #d0a04a;
+    --danger: #e06a62;
+    --offline: #77776f;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-offline: var(--offline);
+  --font-sans: "Helvetica Neue", Arial, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+}
+
+html { background: var(--canvas); }
+body { margin: 0; min-width: 320px; background: var(--canvas); color: var(--text); font-family: var(--font-sans); }
+button, input, select, textarea { font: inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

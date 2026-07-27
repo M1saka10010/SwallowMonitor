@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -110,34 +111,55 @@ func TestStaticHandlerServesEmbeddedFiles(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	server.New(&model.Config{}, st, mux, web.Handler())
 
-	for _, tc := range []struct {
-		path        string
-		contentType string
-		contains    string
-	}{
-		{path: "/", contentType: "text/html", contains: "app.js"},
-		{path: "/app.js", contentType: "text/javascript", contains: "fetch"},
-		{path: "/style.css", contentType: "text/css", contains: "body"},
-	} {
-		t.Run(tc.path, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if contentType := rec.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+		t.Fatalf("root Content-Type = %q, want text/html", contentType)
+	}
+	if !strings.Contains(rec.Body.String(), `id="root"`) {
+		t.Fatal("root page does not contain the React mount node")
+	}
+
+	assetPattern := regexp.MustCompile(`/assets/[^"']+\.(?:js|css)`)
+	assets := assetPattern.FindAllString(rec.Body.String(), -1)
+	if len(assets) < 2 {
+		t.Fatalf("root assets = %v, want JavaScript and CSS assets", assets)
+	}
+	var hasJavaScript, hasCSS bool
+	for _, asset := range assets {
+		contentType := "text/css"
+		if strings.HasSuffix(asset, ".js") {
+			contentType = "text/javascript"
+			hasJavaScript = true
+		} else {
+			hasCSS = true
+		}
+		t.Run(asset, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, asset, nil)
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
 			}
-			if contentType := rec.Header().Get("Content-Type"); !strings.Contains(contentType, tc.contentType) {
-				t.Fatalf("Content-Type = %q, want containing %q", contentType, tc.contentType)
+			if got := rec.Header().Get("Content-Type"); !strings.Contains(got, contentType) {
+				t.Fatalf("Content-Type = %q, want containing %q", got, contentType)
 			}
-			if !strings.Contains(rec.Body.String(), tc.contains) {
-				t.Fatalf("response for %s does not contain %q", tc.path, tc.contains)
+			if rec.Body.Len() == 0 {
+				t.Fatalf("response for %s is empty", asset)
 			}
 		})
 	}
+	if !hasJavaScript || !hasCSS {
+		t.Fatalf("root assets = %v, want at least one JavaScript and one CSS asset", assets)
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/missing.js", nil)
-	rec := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/missing.js", nil)
+	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing static status = %d, want %d", rec.Code, http.StatusNotFound)
