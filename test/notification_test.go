@@ -191,7 +191,7 @@ func TestNotificationDispatchOnStatusChange(t *testing.T) {
 
 	waitForNotification(t, &mu, &queries, 1)
 	_ = conn.Close()
-	waitForNotification(t, &mu, &queries, 2)
+	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
 	got := append([]string(nil), queries...)
@@ -199,8 +199,8 @@ func TestNotificationDispatchOnStatusChange(t *testing.T) {
 	if !strings.Contains(got[0], "Web-01") || !strings.Contains(got[0], "上线") {
 		t.Fatalf("online text = %q", got[0])
 	}
-	if !strings.Contains(got[1], "Web-01") || !strings.Contains(got[1], "离线") {
-		t.Fatalf("offline text = %q", got[1])
+	if len(got) != 1 {
+		t.Fatalf("notification count shortly after disconnect = %d, want 1", len(got))
 	}
 }
 

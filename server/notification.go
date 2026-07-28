@@ -13,6 +13,7 @@ import (
 )
 
 const notificationTimeout = 5 * time.Second
+const offlineNotificationDelay = 5 * time.Minute
 
 func normalizeNotificationRule(rule store.NotificationRule) (store.NotificationRule, string) {
 	rule.Tag = strings.TrimSpace(rule.Tag)
@@ -66,6 +67,48 @@ func (s *Server) notifyHostStatus(publicID string, online bool) {
 		}
 		seen[notifyURL] = struct{}{}
 		s.sendNotificationGET(client, notifyURL)
+	}
+}
+
+func (s *Server) scheduleOfflineNotification(publicID string) {
+	s.scheduleOfflineNotificationAfter(publicID, offlineNotificationDelay, func() {
+		s.notifyHostStatus(publicID, false)
+	})
+}
+
+func (s *Server) scheduleOfflineNotificationAfter(publicID string, delay time.Duration, notify func()) {
+	s.offlineNotificationMu.Lock()
+	defer s.offlineNotificationMu.Unlock()
+
+	if timer := s.offlineNotificationTimers[publicID]; timer != nil {
+		timer.Stop()
+	}
+
+	var timer *time.Timer
+	timer = time.AfterFunc(delay, func() {
+		s.offlineNotificationMu.Lock()
+		if s.offlineNotificationTimers[publicID] != timer {
+			s.offlineNotificationMu.Unlock()
+			return
+		}
+		delete(s.offlineNotificationTimers, publicID)
+		stillOffline := !s.hub.IsOnline(publicID)
+		s.offlineNotificationMu.Unlock()
+
+		if stillOffline {
+			notify()
+		}
+	})
+	s.offlineNotificationTimers[publicID] = timer
+}
+
+func (s *Server) cancelOfflineNotification(publicID string) {
+	s.offlineNotificationMu.Lock()
+	defer s.offlineNotificationMu.Unlock()
+
+	if timer := s.offlineNotificationTimers[publicID]; timer != nil {
+		timer.Stop()
+		delete(s.offlineNotificationTimers, publicID)
 	}
 }
 

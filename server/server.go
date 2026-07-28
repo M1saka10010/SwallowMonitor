@@ -5,6 +5,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/M1saka10010/SwallowMonitor/model"
 	"github.com/M1saka10010/SwallowMonitor/store"
@@ -15,21 +17,24 @@ import (
 
 // Server holds shared dependencies for HTTP handlers.
 type Server struct {
-	cfg      *model.Config
-	store    *store.Store
-	hub      *Hub
-	sessions *sessionStore
-	oauth    *oauth2.Config
-	upgrader websocket.Upgrader
+	cfg                       *model.Config
+	store                     *store.Store
+	hub                       *Hub
+	sessions                  *sessionStore
+	oauth                     *oauth2.Config
+	upgrader                  websocket.Upgrader
+	offlineNotificationMu     sync.Mutex
+	offlineNotificationTimers map[string]*time.Timer
 }
 
 // New creates a Server and wires the HTTP routes onto mux.
 func New(cfg *model.Config, st *store.Store, mux *http.ServeMux, webHandler http.Handler) *Server {
 	s := &Server{
-		cfg:      cfg,
-		store:    st,
-		hub:      NewHub(),
-		sessions: newSessionStore(),
+		cfg:                       cfg,
+		store:                     st,
+		hub:                       NewHub(),
+		sessions:                  newSessionStore(),
+		offlineNotificationTimers: make(map[string]*time.Timer),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
