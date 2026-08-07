@@ -5,7 +5,8 @@ publicUrl: http://localhost:8080
 # SQLite 数据库文件路径
 # Docker 部署时请设为 /data/swallow.db（对应 compose 的持久化卷）
 dbPath: ./swallow.db
-# usage 历史保留天数（<=0 表示不清理）
+# 聚合历史保留天数：原始数据固定保留 1 天，5 分钟聚合数据按此天数保留，
+# 1 小时聚合数据保留 365 天（不配置默认 7 天；显式 0 表示不清理聚合历史）
 retentionDays: 7
 # 超过该秒数未上报且无活动连接判定离线
 offlineTimeout: 90

@@ -79,6 +79,47 @@ func (s *Store) migrate() error {
 			load15 REAL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_usages_pub_ts ON usages(public_id, ts)`,
+		`CREATE INDEX IF NOT EXISTS idx_usages_ts ON usages(ts)`,
+		`CREATE TABLE IF NOT EXISTS usages_5m (
+			public_id TEXT NOT NULL,
+			bucket_ts INTEGER NOT NULL,
+			cpu_usage REAL,
+			memory_total INTEGER,
+			memory_used INTEGER,
+			swap_total INTEGER,
+			swap_used INTEGER,
+			disk_total INTEGER,
+			disk_used INTEGER,
+			net_recv INTEGER,
+			net_send INTEGER,
+			net_recv_speed REAL,
+			net_send_speed REAL,
+			load1 REAL,
+			load5 REAL,
+			load15 REAL,
+			PRIMARY KEY (public_id, bucket_ts)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_usages_5m_ts ON usages_5m(bucket_ts)`,
+		`CREATE TABLE IF NOT EXISTS usages_1h (
+			public_id TEXT NOT NULL,
+			bucket_ts INTEGER NOT NULL,
+			cpu_usage REAL,
+			memory_total INTEGER,
+			memory_used INTEGER,
+			swap_total INTEGER,
+			swap_used INTEGER,
+			disk_total INTEGER,
+			disk_used INTEGER,
+			net_recv INTEGER,
+			net_send INTEGER,
+			net_recv_speed REAL,
+			net_send_speed REAL,
+			load1 REAL,
+			load5 REAL,
+			load15 REAL,
+			PRIMARY KEY (public_id, bucket_ts)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_usages_1h_ts ON usages_1h(bucket_ts)`,
 		`CREATE TABLE IF NOT EXISTS tags (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL UNIQUE,
@@ -122,15 +163,34 @@ func (s *Store) ensureColumn(table, column, typ string) {
 	_, _ = s.db.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + typ)
 }
 
-// PruneUsages deletes usage rows older than retentionDays.
+// PruneUsages deletes raw usage rows older than retentionDays.
 func (s *Store) PruneUsages(retentionDays int) (int64, error) {
 	if retentionDays <= 0 {
 		return 0, nil
 	}
 	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour).Unix()
-	res, err := s.db.Exec(`DELETE FROM usages WHERE ts < ?`, cutoff)
-	if err != nil {
-		return 0, err
+	return s.pruneByTs("usages", "ts", cutoff)
+}
+
+// VacuumIfFragmented runs a full VACUUM (followed by a truncating checkpoint,
+// which is what actually shrinks the file in WAL mode) when more than half of
+// the database pages are free. Returns true when a VACUUM ran.
+func (s *Store) VacuumIfFragmented() (bool, error) {
+	var freelist, pages int
+	if err := s.db.QueryRow(`PRAGMA freelist_count`).Scan(&freelist); err != nil {
+		return false, err
 	}
-	return res.RowsAffected()
+	if err := s.db.QueryRow(`PRAGMA page_count`).Scan(&pages); err != nil {
+		return false, err
+	}
+	if freelist*2 <= pages {
+		return false, nil
+	}
+	if _, err := s.db.Exec(`VACUUM`); err != nil {
+		return false, err
+	}
+	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return false, err
+	}
+	return true, nil
 }

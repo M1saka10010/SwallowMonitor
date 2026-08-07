@@ -42,9 +42,9 @@ func main() {
 
 	httpServer := &http.Server{Addr: cfg.Listen, Handler: mux}
 
-	// Background retention pruning.
-	pruneCtx, stopPrune := context.WithCancel(context.Background())
-	go pruneLoop(pruneCtx, st, cfg.RetentionDays)
+	// Background maintenance: downsample aggregation + retention pruning.
+	maintCtx, stopMaint := context.WithCancel(context.Background())
+	go maintenanceLoop(maintCtx, st, *cfg.RetentionDays)
 
 	go func() {
 		log.Printf("SwallowMonitor listening on %s", cfg.Listen)
@@ -58,7 +58,7 @@ func main() {
 	<-sig
 	log.Println("shutting down...")
 
-	stopPrune()
+	stopMaint()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
@@ -84,20 +84,39 @@ func loadConfig(path string) (*model.Config, error) {
 	if cfg.OfflineTimeout <= 0 {
 		cfg.OfflineTimeout = 90
 	}
+	// 未配置 retentionDays 时默认 7 天，避免"0 = 永不清理"导致数据库无限增长。
+	if cfg.RetentionDays == nil {
+		days := 7
+		cfg.RetentionDays = &days
+	}
 	return &cfg, nil
 }
 
-func pruneLoop(ctx context.Context, st *store.Store, retentionDays int) {
-	if retentionDays <= 0 {
-		return
-	}
-	ticker := time.NewTicker(time.Hour)
+// maintenanceLoop runs every 5 minutes: it rolls raw usage rows up into the
+// downsampled tables first (so pruning never loses history), then prunes the
+// raw (fixed 1 day) and downsampled tiers, and reclaims disk space when the
+// database is fragmented.
+func maintenanceLoop(ctx context.Context, st *store.Store, retentionDays int) {
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
-		if n, err := st.PruneUsages(retentionDays); err != nil {
+		if err := st.AggregateUsage(time.Now()); err != nil {
+			log.Printf("aggregate error: %v", err)
+		}
+		if n, err := st.PruneUsages(1); err != nil {
 			log.Printf("prune error: %v", err)
 		} else if n > 0 {
-			log.Printf("pruned %d old usage rows", n)
+			log.Printf("pruned %d raw usage rows", n)
+		}
+		if n, err := st.PruneDownsampled(retentionDays); err != nil {
+			log.Printf("prune downsampled error: %v", err)
+		} else if n > 0 {
+			log.Printf("pruned %d downsampled rows", n)
+		}
+		if vacuumed, err := st.VacuumIfFragmented(); err != nil {
+			log.Printf("vacuum error: %v", err)
+		} else if vacuumed {
+			log.Printf("vacuumed database (free pages reclaimed)")
 		}
 		select {
 		case <-ctx.Done():

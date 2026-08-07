@@ -261,17 +261,32 @@ func TestUsageStoreLatestQuerySamplingAndPrune(t *testing.T) {
 		t.Fatalf("raw usage len=%d first=%v last=%v", len(raw), raw[0].Timestamp, raw[len(raw)-1].Timestamp)
 	}
 
-	sampled, err := st.QueryUsage(host.PublicID, 0, 9990)
+	// 分级保留：原始数据先下沉到 5 分钟聚合表，长区间查询改走聚合表。
+	if err := st.AggregateUsage(time.Now()); err != nil {
+		t.Fatalf("AggregateUsage() error = %v", err)
+	}
+	bucketed, err := st.QueryUsage(host.PublicID, 0, 9990)
 	if err != nil {
-		t.Fatalf("QueryUsage(sampled) error = %v", err)
+		t.Fatalf("QueryUsage(bucketed) error = %v", err)
 	}
-	if len(sampled) == 0 || len(sampled) >= 1000 {
-		t.Fatalf("sampled usage len = %d, want between 1 and 999", len(sampled))
+	if len(bucketed) == 0 || len(bucketed) >= 1000 {
+		t.Fatalf("bucketed usage len = %d, want between 1 and 999", len(bucketed))
 	}
-	for i := 1; i < len(sampled); i++ {
-		if sampled[i].Timestamp < sampled[i-1].Timestamp {
-			t.Fatalf("sampled usage not ordered at %d: %d < %d", i, sampled[i].Timestamp, sampled[i-1].Timestamp)
+	for i := 1; i < len(bucketed); i++ {
+		if bucketed[i].Timestamp < bucketed[i-1].Timestamp {
+			t.Fatalf("bucketed usage not ordered at %d: %d < %d", i, bucketed[i].Timestamp, bucketed[i-1].Timestamp)
 		}
+	}
+	if bucketed[0].Timestamp%300 != 0 {
+		t.Fatalf("bucketed timestamp %d not aligned to 5m", bucketed[0].Timestamp)
+	}
+	// 聚合后原始表仍保留（1 天内），短区间查询不受影响。
+	rawAfter, err := st.QueryUsage(host.PublicID, 100, 300)
+	if err != nil {
+		t.Fatalf("QueryUsage(raw after aggregate) error = %v", err)
+	}
+	if len(rawAfter) != 21 {
+		t.Fatalf("raw usage after aggregate len = %d, want 21", len(rawAfter))
 	}
 
 	pruneStore, _ := newTestApp(t, nil)
@@ -295,6 +310,166 @@ func TestUsageStoreLatestQuerySamplingAndPrune(t *testing.T) {
 	}
 	if deleted, err := pruneStore.PruneUsages(0); err != nil || deleted != 0 {
 		t.Fatalf("PruneUsages(0) = %d, %v; want 0, nil", deleted, err)
+	}
+}
+
+func TestPruneUsagesBatched(t *testing.T) {
+	st, _ := newTestApp(t, nil)
+	host, err := st.CreateHost("Web-01", "token-prune-batch", nil)
+	if err != nil {
+		t.Fatalf("CreateHost() error = %v", err)
+	}
+	now := uint64(time.Now().Unix())
+	const oldRows = 6000 // exceeds one prune batch (5000)
+	for i := 0; i < oldRows; i++ {
+		if err := st.InsertUsage(host.PublicID, &model.SystemUsage{Timestamp: now - 3*24*3600 - uint64(i)}); err != nil {
+			t.Fatalf("InsertUsage(old %d) error = %v", i, err)
+		}
+	}
+	if err := st.InsertUsage(host.PublicID, &model.SystemUsage{Timestamp: now}); err != nil {
+		t.Fatalf("InsertUsage(recent) error = %v", err)
+	}
+	deleted, err := st.PruneUsages(1)
+	if err != nil {
+		t.Fatalf("PruneUsages() error = %v", err)
+	}
+	if deleted != oldRows {
+		t.Fatalf("PruneUsages() deleted = %d, want %d", deleted, oldRows)
+	}
+	latest, err := st.LatestUsage(host.PublicID)
+	if err != nil {
+		t.Fatalf("LatestUsage() error = %v", err)
+	}
+	if latest == nil || latest.Timestamp != now {
+		t.Fatalf("recent row lost after prune: %#v", latest)
+	}
+}
+
+func TestAggregateUsageValuesAndTiers(t *testing.T) {
+	st, _ := newTestApp(t, nil)
+	host, err := st.CreateHost("Web-01", "token-agg", nil)
+	if err != nil {
+		t.Fatalf("CreateHost() error = %v", err)
+	}
+
+	// 桶 0（ts 0-30）：cpu 1..4 → AVG 2.5；memory_used → MAX 400。
+	for i, cpu := range []float64{1, 2, 3, 4} {
+		if err := st.InsertUsage(host.PublicID, &model.SystemUsage{
+			Timestamp: uint64(i * 10), CPUUsage: cpu, MemoryUsed: uint64((i + 1) * 100),
+		}); err != nil {
+			t.Fatalf("InsertUsage(%d) error = %v", i, err)
+		}
+	}
+	// 桶 300：单点 cpu 10。
+	if err := st.InsertUsage(host.PublicID, &model.SystemUsage{Timestamp: 300, CPUUsage: 10}); err != nil {
+		t.Fatalf("InsertUsage(300) error = %v", err)
+	}
+
+	if err := st.AggregateUsage(time.Now()); err != nil {
+		t.Fatalf("AggregateUsage() error = %v", err)
+	}
+
+	fiveMin, err := st.QueryUsage(host.PublicID, 0, 9999)
+	if err != nil {
+		t.Fatalf("QueryUsage(5m) error = %v", err)
+	}
+	if len(fiveMin) != 2 {
+		t.Fatalf("5m buckets = %d, want 2", len(fiveMin))
+	}
+	if fiveMin[0].Timestamp != 0 || fiveMin[0].CPUUsage != 2.5 || fiveMin[0].MemoryUsed != 400 {
+		t.Fatalf("5m bucket 0 = %#v, want cpu 2.5 mem 400", fiveMin[0])
+	}
+	if fiveMin[1].Timestamp != 300 || fiveMin[1].CPUUsage != 10 {
+		t.Fatalf("5m bucket 300 = %#v, want cpu 10", fiveMin[1])
+	}
+
+	// >30 天范围路由到 1h 表：两个 5m 桶同属小时桶 0，cpu AVG(2.5,10)=6.25。
+	hourly, err := st.QueryUsage(host.PublicID, 0, 31*24*3600)
+	if err != nil {
+		t.Fatalf("QueryUsage(1h) error = %v", err)
+	}
+	if len(hourly) != 1 {
+		t.Fatalf("1h buckets = %d, want 1", len(hourly))
+	}
+	if hourly[0].Timestamp != 0 || hourly[0].CPUUsage != 6.25 || hourly[0].MemoryUsed != 400 {
+		t.Fatalf("1h bucket = %#v, want cpu 6.25 mem 400", hourly[0])
+	}
+}
+
+func TestPruneDownsampled(t *testing.T) {
+	st, _ := newTestApp(t, nil)
+	host, err := st.CreateHost("Web-01", "token-prune-ds", nil)
+	if err != nil {
+		t.Fatalf("CreateHost() error = %v", err)
+	}
+	now := time.Now().Unix()
+	for _, ts := range []uint64{uint64(now - 400*24*3600), uint64(now - 3*24*3600), uint64(now)} {
+		if err := st.InsertUsage(host.PublicID, &model.SystemUsage{Timestamp: ts, CPUUsage: 1}); err != nil {
+			t.Fatalf("InsertUsage(%d) error = %v", ts, err)
+		}
+	}
+	if err := st.AggregateUsage(time.Now()); err != nil {
+		t.Fatalf("AggregateUsage() error = %v", err)
+	}
+
+	deleted, err := st.PruneDownsampled(7)
+	if err != nil {
+		t.Fatalf("PruneDownsampled() error = %v", err)
+	}
+	// 400 天前：5m 桶（7 天保留）和 1h 桶（365 天保留）均过期；3 天前和当前桶保留。
+	if deleted < 2 {
+		t.Fatalf("PruneDownsampled() deleted = %d, want >= 2", deleted)
+	}
+
+	rows, err := st.QueryUsage(host.PublicID, 0, 31*24*3600)
+	if err != nil {
+		t.Fatalf("QueryUsage(1h) error = %v", err)
+	}
+	for _, r := range rows {
+		if r.Timestamp < uint64(now-30*24*3600) {
+			t.Fatalf("1h bucket %d survived prune", r.Timestamp)
+		}
+	}
+}
+
+func TestVacuumIfFragmented(t *testing.T) {
+	st, _ := newTestApp(t, nil)
+	host, err := st.CreateHost("Web-01", "token-vacuum", nil)
+	if err != nil {
+		t.Fatalf("CreateHost() error = %v", err)
+	}
+
+	ran, err := st.VacuumIfFragmented()
+	if err != nil {
+		t.Fatalf("VacuumIfFragmented(empty) error = %v", err)
+	}
+	if ran {
+		t.Fatal("VacuumIfFragmented(empty) ran, want false")
+	}
+
+	for i := 0; i < 20000; i++ {
+		if err := st.InsertUsage(host.PublicID, &model.SystemUsage{Timestamp: uint64(1000 + i)}); err != nil {
+			t.Fatalf("InsertUsage(%d) error = %v", i, err)
+		}
+	}
+	if _, err := st.PruneUsages(1); err != nil {
+		t.Fatalf("PruneUsages() error = %v", err)
+	}
+
+	ran, err = st.VacuumIfFragmented()
+	if err != nil {
+		t.Fatalf("VacuumIfFragmented(fragmented) error = %v", err)
+	}
+	if !ran {
+		t.Fatal("VacuumIfFragmented(fragmented) did not run, want true")
+	}
+
+	ran, err = st.VacuumIfFragmented()
+	if err != nil {
+		t.Fatalf("VacuumIfFragmented(clean) error = %v", err)
+	}
+	if ran {
+		t.Fatal("VacuumIfFragmented(clean) ran again, want false")
 	}
 }
 

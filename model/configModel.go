@@ -5,7 +5,7 @@ type Config struct {
 	Listen         string       `yaml:"listen"`
 	PublicURL      string       `yaml:"publicUrl"`
 	DBPath         string       `yaml:"dbPath"`
-	RetentionDays  int          `yaml:"retentionDays"`
+	RetentionDays  *int         `yaml:"retentionDays"`
 	OfflineTimeout int64        `yaml:"offlineTimeout"`
 	GitHub         GitHubConfig `yaml:"github"`
 	IsDebug        bool         `yaml:"isDebug"`
