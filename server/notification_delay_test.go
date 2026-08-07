@@ -34,7 +34,12 @@ func TestOfflineNotificationIsCancelledOnReconnect(t *testing.T) {
 	s.scheduleOfflineNotificationAfter("host-1", 20*time.Millisecond, func() {
 		notificationCount.Add(1)
 	})
-	s.cancelOfflineNotification("host-1")
+	if !s.cancelOfflineNotification("host-1") {
+		t.Fatal("cancelOfflineNotification() = false, want true (pending timer canceled)")
+	}
+	if s.cancelOfflineNotification("host-1") {
+		t.Fatal("second cancelOfflineNotification() = true, want false (no pending timer)")
+	}
 	time.Sleep(60 * time.Millisecond)
 
 	if got := notificationCount.Load(); got != 0 {

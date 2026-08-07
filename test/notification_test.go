@@ -204,6 +204,64 @@ func TestNotificationDispatchOnStatusChange(t *testing.T) {
 	}
 }
 
+func TestNoOnlineNotificationAfterReconnectWithinDelay(t *testing.T) {
+	var mu sync.Mutex
+	var queries []string
+	notifySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		queries = append(queries, r.URL.Query().Get("text"))
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer notifySrv.Close()
+
+	st, mux := newTestApp(t, nil)
+	host, err := st.CreateHost("Web-02", "token-2", nil)
+	if err != nil {
+		t.Fatalf("CreateHost() error = %v", err)
+	}
+	_, err = st.CreateNotificationRule(store.NotificationRule{
+		Tag:           "",
+		URL:           notifySrv.URL + "/send?text=%text%",
+		NotifyOnline:  true,
+		NotifyOffline: true,
+		Enabled:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateNotificationRule() error = %v", err)
+	}
+
+	appSrv := httptest.NewServer(mux)
+	defer appSrv.Close()
+	wsURL := "ws" + strings.TrimPrefix(appSrv.URL, "http") + "/report"
+	header := http.Header{"Token": []string{host.Token}}
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("first dial report websocket: %v", err)
+	}
+	waitForNotification(t, &mu, &queries, 1)
+	_ = conn.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	conn, _, err = websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("reconnect dial report websocket: %v", err)
+	}
+	defer conn.Close()
+	time.Sleep(300 * time.Millisecond)
+
+	mu.Lock()
+	got := append([]string(nil), queries...)
+	mu.Unlock()
+	if len(got) != 1 {
+		t.Fatalf("notification count after reconnect = %d, want 1 (reconnect within delay must be silent)", len(got))
+	}
+	if !strings.Contains(got[0], "上线") {
+		t.Fatalf("notification text = %q, want 上线", got[0])
+	}
+}
+
 func strconvID(id int64) string {
 	return strconv.FormatInt(id, 10)
 }

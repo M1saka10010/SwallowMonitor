@@ -102,14 +102,19 @@ func (s *Server) scheduleOfflineNotificationAfter(publicID string, delay time.Du
 	s.offlineNotificationTimers[publicID] = timer
 }
 
-func (s *Server) cancelOfflineNotification(publicID string) {
+// cancelOfflineNotification stops a pending offline notification. It reports
+// whether one was pending, i.e. the host went offline less than
+// offlineNotificationDelay ago and no offline notification was sent.
+func (s *Server) cancelOfflineNotification(publicID string) bool {
 	s.offlineNotificationMu.Lock()
 	defer s.offlineNotificationMu.Unlock()
 
 	if timer := s.offlineNotificationTimers[publicID]; timer != nil {
 		timer.Stop()
 		delete(s.offlineNotificationTimers, publicID)
+		return true
 	}
+	return false
 }
 
 func formatStatusNotificationText(host *store.Host, statusText string) string {
