@@ -15,6 +15,8 @@ import (
 	"golang.org/x/oauth2/github"
 )
 
+const maxBodySize = 1 << 20 // 1 MiB
+
 // Server holds shared dependencies for HTTP handlers.
 type Server struct {
 	cfg                       *model.Config
@@ -83,5 +85,5 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func decodeJSON(r io.Reader, v any) error {
-	return json.NewDecoder(r).Decode(v)
+	return json.NewDecoder(io.LimitReader(r, maxBodySize)).Decode(v)
 }

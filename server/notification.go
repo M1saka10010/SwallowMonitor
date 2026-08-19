@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +15,33 @@ import (
 
 const notificationTimeout = 5 * time.Second
 const offlineNotificationDelay = 5 * time.Minute
+const dnsResolveTimeout = 3 * time.Second
+
+// isPrivateHost resolves host and returns true when any IP belongs to a
+// private, link-local, or otherwise non-public address range. Loopback is
+// allowed for development and testing.
+func isPrivateHost(host string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), dnsResolveTimeout)
+	defer cancel()
+
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return true // fail closed: reject unresolvable hosts
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() {
+			continue
+		}
+		if ip.IsPrivate() ||
+			ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() ||
+			ip.IsUnspecified() ||
+			ip.IsInterfaceLocalMulticast() {
+			return true
+		}
+	}
+	return false
+}
 
 func normalizeNotificationRule(rule store.NotificationRule) (store.NotificationRule, string) {
 	rule.Tag = strings.TrimSpace(rule.Tag)
@@ -27,6 +55,9 @@ func normalizeNotificationRule(rule store.NotificationRule) (store.NotificationR
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return rule, "url must use http or https"
+	}
+	if isPrivateHost(parsed.Hostname()) {
+		return rule, "url must not target private or internal hosts"
 	}
 	if !strings.Contains(rule.URL, "%text%") {
 		return rule, "url must contain %text%"
