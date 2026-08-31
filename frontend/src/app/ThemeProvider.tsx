@@ -17,6 +17,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (theme === "auto") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = theme;
+    setRevision((value) => value + 1);
   }, [theme]);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");

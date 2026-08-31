@@ -1,56 +1,72 @@
 @import "tailwindcss";
 
 :root {
-  --canvas: #f4f4f1;
+  --canvas: #f7f7f5;
   --surface: #ffffff;
-  --surface-muted: #ecece8;
-  --text: #171714;
-  --text-muted: #696963;
-  --border: #d7d7d1;
-  --border-strong: #adada5;
-  --accent: #2457d6;
-  --success: #267a50;
-  --warning: #9a6500;
-  --danger: #be3b34;
-  --offline: #85857e;
+  --surface-muted: #f0f0ed;
+  --text: #141413;
+  --text-muted: #5c5c57;
+  --text-faint: #71716b;
+  --border: #deded9;
+  --border-strong: #b4b4ae;
+  --success: #157a4a;
+  --warning: #966600;
+  --danger: #c2372e;
+  --offline: #8f8f89;
   --chart-blue: #3478d4;
   --chart-green: #398760;
   --chart-orange: #b56a28;
   --chart-red: #c64b45;
-  --chart-gray: #85857e;
+  --chart-offline: #8f8f89;
+  --edge-light: transparent;
+  --noise-opacity: 0.025;
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --canvas: #11110f;
-  --surface: #181816;
-  --surface-muted: #20201d;
-  --text: #f1f1ec;
-  --text-muted: #a4a49c;
-  --border: #32322e;
-  --border-strong: #55554e;
-  --accent: #6f91f2;
-  --success: #55a97a;
-  --warning: #d0a04a;
-  --danger: #e06a62;
-  --offline: #77776f;
+  --canvas: #0c0c0b;
+  --surface: #131312;
+  --surface-muted: #1a1a19;
+  --text: #f2f2ef;
+  --text-muted: #9c9c96;
+  --text-faint: #7f7f79;
+  --border: #262624;
+  --border-strong: #3e3e3b;
+  --success: #4ebd85;
+  --warning: #d6a73f;
+  --danger: #e36a60;
+  --offline: #7c7c76;
+  --chart-blue: #79a1ee;
+  --chart-green: #63b58c;
+  --chart-orange: #d9a05f;
+  --chart-red: #e0857d;
+  --chart-offline: #7c7c76;
+  --edge-light: rgba(255, 255, 255, 0.04);
+  --noise-opacity: 0.05;
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --canvas: #11110f;
-    --surface: #181816;
-    --surface-muted: #20201d;
-    --text: #f1f1ec;
-    --text-muted: #a4a49c;
-    --border: #32322e;
-    --border-strong: #55554e;
-    --accent: #6f91f2;
-    --success: #55a97a;
-    --warning: #d0a04a;
-    --danger: #e06a62;
-    --offline: #77776f;
+    --canvas: #0c0c0b;
+    --surface: #131312;
+    --surface-muted: #1a1a19;
+    --text: #f2f2ef;
+    --text-muted: #9c9c96;
+    --text-faint: #7f7f79;
+    --border: #262624;
+    --border-strong: #3e3e3b;
+    --success: #4ebd85;
+    --warning: #d6a73f;
+    --danger: #e36a60;
+    --offline: #7c7c76;
+    --chart-blue: #79a1ee;
+    --chart-green: #63b58c;
+    --chart-orange: #d9a05f;
+    --chart-red: #e0857d;
+    --chart-offline: #7c7c76;
+    --edge-light: rgba(255, 255, 255, 0.04);
+    --noise-opacity: 0.05;
     color-scheme: dark;
   }
 }
@@ -61,22 +77,72 @@
   --color-surface-muted: var(--surface-muted);
   --color-ink: var(--text);
   --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
   --color-line: var(--border);
   --color-line-strong: var(--border-strong);
-  --color-accent: var(--accent);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-offline: var(--offline);
   --font-sans: "Helvetica Neue", Arial, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-serif: "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif;
   --font-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
 }
 
 html { background: var(--canvas); }
 body { margin: 0; min-width: 320px; background: var(--canvas); color: var(--text); font-family: var(--font-sans); }
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: var(--noise-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+::selection { background: var(--text); color: var(--canvas); }
+
 button, input, select, textarea { font: inherit; }
+
+input[type="checkbox"] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background-color: var(--surface);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 10px;
+  transition: background-color 120ms, border-color 120ms;
+}
+input[type="checkbox"]:checked {
+  border-color: var(--text);
+  background-color: var(--text);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.5 5 9 9.5 3.5' fill='none' stroke='%23f7f7f5' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+:root[data-theme="dark"] input[type="checkbox"]:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.5 5 9 9.5 3.5' fill='none' stroke='%230c0c0b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) input[type="checkbox"]:checked {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.5 5 9 9.5 3.5' fill='none' stroke='%230c0c0b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 6.5 8 10l3.5-3.5' fill='none' stroke='%238a8a85' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 10px center;
+  background-repeat: no-repeat;
+  background-size: 12px;
+}
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--text);
   outline-offset: 2px;
 }
 
