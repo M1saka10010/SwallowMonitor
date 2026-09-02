@@ -10,8 +10,9 @@ import (
 // Hub tracks live agent connections and browser overview subscribers.
 type Hub struct {
 	mu sync.RWMutex
-	// agents maps public_id -> set of agent connections (usually one).
-	agents map[string]map[*websocket.Conn]struct{}
+	// agents maps public_id -> the host's latest agent connection. A new
+	// connection evicts (closes) any previous one for the same host.
+	agents map[string]*websocket.Conn
 	// overview holds subscribers that receive events for all hosts.
 	overview map[*subscriber]struct{}
 }
@@ -23,35 +24,41 @@ type subscriber struct {
 // NewHub creates an empty hub.
 func NewHub() *Hub {
 	return &Hub{
-		agents:   make(map[string]map[*websocket.Conn]struct{}),
+		agents:   make(map[string]*websocket.Conn),
 		overview: make(map[*subscriber]struct{}),
 	}
 }
 
-// AddAgent registers a live agent connection for a host. It reports whether
-// this connection transitioned the host from offline to online.
+// AddAgent registers a live agent connection for a host. If a previous
+// connection exists for the same host it is evicted (closed) so that only the
+// latest connection survives. It reports whether this connection transitioned
+// the host from offline (no prior connection) to online.
 func (h *Hub) AddAgent(publicID string, c *websocket.Conn) (becameOnline bool) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.agents[publicID] == nil {
-		h.agents[publicID] = make(map[*websocket.Conn]struct{})
+	becameOnline = h.agents[publicID] == nil
+	old := h.agents[publicID]
+	h.agents[publicID] = c
+	h.mu.Unlock()
+
+	// Close the evicted connection outside the lock. Its read loop will
+	// unblock and call RemoveAgent, which sees the new connection is present
+	// and reports not-offline (no spurious offline event).
+	if old != nil && old != c {
+		old.Close()
 	}
-	becameOnline = len(h.agents[publicID]) == 0
-	h.agents[publicID][c] = struct{}{}
 	return becameOnline
 }
 
 // RemoveAgent unregisters an agent connection. It reports whether the host
-// transitioned to offline (no remaining connections).
+// transitioned to offline (the removed connection was the current one and no
+// replacement arrived). A no-op if the connection was already evicted by a
+// newer AddAgent.
 func (h *Hub) RemoveAgent(publicID string, c *websocket.Conn) (becameOffline bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if conns := h.agents[publicID]; conns != nil {
-		delete(conns, c)
-		if len(conns) == 0 {
-			delete(h.agents, publicID)
-			return true
-		}
+	if h.agents[publicID] == c {
+		delete(h.agents, publicID)
+		return true
 	}
 	return false
 }
@@ -60,7 +67,7 @@ func (h *Hub) RemoveAgent(publicID string, c *websocket.Conn) (becameOffline boo
 func (h *Hub) IsOnline(publicID string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return len(h.agents[publicID]) > 0
+	return h.agents[publicID] != nil
 }
 
 // SubscribeOverview registers a subscriber that receives events for all hosts.

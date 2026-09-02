@@ -14,6 +14,14 @@ import (
 // Authentication is via the "Token" request header which must match a
 // registered host token.
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	// Rate-limit by source IP before any DB access to prevent token
+	// brute-force and DB-flooding DoS.
+	if !s.reportLimiter.Allow(s.clientIP(r)) {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+
 	token := r.Header.Get("Token")
 	if token == "" {
 		http.Error(w, "missing token", http.StatusUnauthorized)

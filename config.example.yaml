@@ -10,6 +10,16 @@ dbPath: ./swallow.db
 retentionDays: 7
 # 超过该秒数未上报且无活动连接判定离线
 offlineTimeout: 90
+# 每 IP 每分钟允许的 /report 连接尝试次数（0 或负数 = 默认 30）
+reportRateLimit: 30
+# 受信任的反向代理 IP/CIDR 列表。仅当请求来自这些地址时才解析
+# X-Forwarded-For 提取真实客户端 IP 用于速率限制。留空则直接使用 TCP 源地址。
+# 常见场景：
+#   直连无代理           → 留空（默认）
+#   Nginx 在宿主机, 本容器 → ["172.16.0.0/12"]  （Docker 网关网段）
+#   Nginx 与本服务同机    → ["127.0.0.0/8"]
+#   Nginx 在另一台机器    → ["10.0.0.3"]        （Nginx 的具体 IP）
+trustedProxies: []
 
 # GitHub OAuth（留空 clientId 则禁用鉴权，仅供本地开发）
 github:

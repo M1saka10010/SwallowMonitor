@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -17,6 +18,10 @@ import (
 
 const maxBodySize = 1 << 20 // 1 MiB
 
+// defaultReportRateLimit is the per-IP connection attempt limit for /report
+// when ReportRateLimit is not configured (0 or negative).
+const defaultReportRateLimit = 30
+
 // Server holds shared dependencies for HTTP handlers.
 type Server struct {
 	cfg                       *model.Config
@@ -24,6 +29,8 @@ type Server struct {
 	hub                       *Hub
 	sessions                  *sessionStore
 	oauth                     *oauth2.Config
+	reportLimiter             *ipRateLimiter
+	trustedProxies            []*net.IPNet
 	upgrader                  websocket.Upgrader
 	offlineNotificationMu     sync.Mutex
 	offlineNotificationTimers map[string]*time.Timer
@@ -52,6 +59,13 @@ func New(cfg *model.Config, st *store.Store, mux *http.ServeMux, webHandler http
 			Scopes:       []string{"read:user"},
 		}
 	}
+
+	reportLimit := cfg.ReportRateLimit
+	if reportLimit <= 0 {
+		reportLimit = defaultReportRateLimit
+	}
+	s.reportLimiter = newIPRateLimiter(reportLimit, time.Minute)
+	s.trustedProxies = parseTrustedProxies(cfg.TrustedProxies)
 
 	// Agent ingest (token auth, no session).
 	mux.HandleFunc("/report", s.handleReport)
