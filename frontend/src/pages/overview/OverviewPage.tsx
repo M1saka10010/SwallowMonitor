@@ -26,6 +26,7 @@ function HostCell({ host }: { host: Host }) {
     <div className="mt-3 grid gap-1.5">
       <Metric label="CPU" value={usage?.cpuUsage ?? 0} text={`${(usage?.cpuUsage ?? 0).toFixed(1)}%`} />
       <Metric label="内存" value={percentage(usage?.memoryUsed ?? 0, usage?.memoryTotal ?? 0)} text={`${formatBytes(usage?.memoryUsed ?? 0)} / ${formatBytes(usage?.memoryTotal ?? 0)}`} />
+      <Metric label="Swap" value={percentage(usage?.swapUsed ?? 0, usage?.swapTotal ?? 0)} text={`${formatBytes(usage?.swapUsed ?? 0)} / ${formatBytes(usage?.swapTotal ?? 0)}`} />
       <Metric label="磁盘" value={percentage(usage?.diskUsed ?? 0, usage?.diskTotal ?? 0)} text={`${formatBytes(usage?.diskUsed ?? 0)} / ${formatBytes(usage?.diskTotal ?? 0)}`} />
     </div>
     <div className="mt-3 flex justify-between border-t border-line pt-2 font-mono text-xs tabular-nums text-muted"><span>↓ {formatBytes(usage?.netRecvSpeed ?? 0)}/s</span><span>↑ {formatBytes(usage?.netSendSpeed ?? 0)}/s</span></div>
