@@ -21,7 +21,7 @@ function HostCell({ host }: { host: Host }) {
   return <Link to={`/hosts/${encodeURIComponent(host.publicId)}?range=1h`} className="relative block overflow-hidden rounded-[10px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_1px_0_var(--edge-light)] transition-colors hover:bg-surface-muted">
     <span className={`absolute inset-x-0 top-0 h-0.5 ${host.online ? "bg-success" : "bg-offline"}`} aria-hidden="true" />
     <div className="flex items-start justify-between gap-3"><h2 className="min-w-0 truncate text-sm font-medium">{host.nickname}</h2><StatusBadge online={host.online} /></div>
-    <p className="mt-1 truncate font-mono text-xs text-muted">{host.hostname || "尚未上报系统信息"} · {host.platform || host.os || "未知系统"} {host.platformVersion}</p>
+    <p className="mt-1 truncate font-mono text-xs text-muted">{host.platform || host.os || "尚未上报系统信息"} {host.platformVersion}</p>
     {host.tags.length > 0 && <div className="mt-2 flex min-h-5 flex-wrap gap-1">{host.tags.map((tag) => <span key={tag} className="rounded-full border border-line px-2 py-0.5 text-[11px] text-faint">{tag}</span>)}</div>}
     <div className="mt-3 grid gap-1.5">
       <Metric label="CPU" value={usage?.cpuUsage ?? 0} text={`${(usage?.cpuUsage ?? 0).toFixed(1)}%`} />
