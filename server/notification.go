@@ -2,10 +2,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -17,30 +19,100 @@ const notificationTimeout = 5 * time.Second
 const offlineNotificationDelay = 5 * time.Minute
 const dnsResolveTimeout = 3 * time.Second
 
-// isPrivateHost resolves host and returns true when any IP belongs to a
-// private, link-local, or otherwise non-public address range. Loopback is
-// allowed for development and testing.
-func isPrivateHost(host string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), dnsResolveTimeout)
-	defer cancel()
+var notificationReservedRanges = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("3fff::/20"),
+}
 
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
-	if err != nil {
-		return true // fail closed: reject unresolvable hosts
+func isPublicNotificationIP(ip net.IP) bool {
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	addr = addr.Unmap()
+	if !addr.IsGlobalUnicast() || addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() {
+		return false
+	}
+	// Only the allocated IPv6 global-unicast space is eligible; this also
+	// excludes translation prefixes that can encode an internal IPv4 target.
+	if addr.Is6() && !netip.MustParsePrefix("2000::/3").Contains(addr) {
+		return false
+	}
+	for _, prefix := range notificationReservedRanges {
+		if prefix.Contains(addr) {
+			return false
+		}
+	}
+	return true
+}
+
+type notificationLookup func(context.Context, string, string) ([]net.IP, error)
+type notificationDial func(context.Context, string, string) (net.Conn, error)
+
+func resolveNotificationIPs(ctx context.Context, host string, lookup notificationLookup) ([]net.IP, error) {
+	ctx, cancel := context.WithTimeout(ctx, dnsResolveTimeout)
+	defer cancel()
+	ips, err := lookup(ctx, "ip", host)
+	if err != nil || len(ips) == 0 {
+		return nil, errors.New("notification host resolution failed")
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() {
-			continue
-		}
-		if ip.IsPrivate() ||
-			ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() ||
-			ip.IsUnspecified() ||
-			ip.IsInterfaceLocalMulticast() {
-			return true
+		if !isPublicNotificationIP(ip) {
+			return nil, errors.New("notification destination is not public")
 		}
 	}
-	return false
+	return ips, nil
+}
+
+func isPrivateHost(host string) bool {
+	_, err := resolveNotificationIPs(context.Background(), host, net.DefaultResolver.LookupIP)
+	return err != nil
+}
+
+func newNotificationTransport(lookup notificationLookup, dial notificationDial) *http.Transport {
+	return &http.Transport{
+		Proxy:               nil,
+		TLSHandshakeTimeout: notificationTimeout,
+		DisableKeepAlives:   true,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, errors.New("invalid notification address")
+			}
+			ips, err := resolveNotificationIPs(ctx, host, lookup)
+			if err != nil {
+				return nil, err
+			}
+			for _, ip := range ips {
+				conn, dialErr := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+				if dialErr == nil {
+					return conn, nil
+				}
+			}
+			return nil, errors.New("notification connection failed")
+		},
+	}
+}
+
+var notificationTransport = newNotificationTransport(net.DefaultResolver.LookupIP, (&net.Dialer{Timeout: notificationTimeout}).DialContext)
+
+func newNotificationClient() *http.Client {
+	return &http.Client{
+		Timeout:       notificationTimeout,
+		Transport:     notificationTransport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 func normalizeNotificationRule(rule store.NotificationRule) (store.NotificationRule, string) {
@@ -49,7 +121,7 @@ func normalizeNotificationRule(rule store.NotificationRule) (store.NotificationR
 	if rule.URL == "" {
 		return rule, "url required"
 	}
-	parsed, err := url.Parse(rule.URL)
+	parsed, err := url.Parse(strings.ReplaceAll(rule.URL, "%text%", "notification"))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return rule, "invalid url"
 	}
@@ -90,7 +162,7 @@ func (s *Server) notifyHostStatus(publicID string, online bool) {
 	}
 	text := formatStatusNotificationText(host, statusText)
 	seen := make(map[string]struct{}, len(rules))
-	client := &http.Client{Timeout: notificationTimeout}
+	client := newNotificationClient()
 	for _, rule := range rules {
 		notifyURL := strings.ReplaceAll(rule.URL, "%text%", url.QueryEscape(text))
 		if _, dup := seen[notifyURL]; dup {
@@ -164,12 +236,16 @@ func (s *Server) sendNotificationGET(client *http.Client, notifyURL string) {
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, notifyURL, nil)
 	if err != nil {
-		s.debugf("notify: build request failed: %v", err)
+		s.debugf("notify: build request failed")
+		return
+	}
+	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+		s.debugf("notify: unsupported URL scheme")
 		return
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		s.debugf("notify: request failed: %v", err)
+		s.debugf("notify: request failed")
 		return
 	}
 	defer resp.Body.Close()

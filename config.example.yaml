@@ -1,7 +1,11 @@
 # HTTP/WS 监听地址
 listen: ":8080"
 # 对外访问地址，用于拼接 GitHub OAuth 回调
-publicUrl: http://localhost:8080
+publicUrl: https://monitor.example.com
+# 仅本机开发可显式开启；必须同时将 listen 改为 127.0.0.1:8080。
+# 开发时同时将 publicUrl 改为 http://127.0.0.1:8080（或删除 publicUrl）。
+# 生产必须保持 false，并配置 HTTPS 反向代理及下方 GitHub OAuth。
+insecureDevelopment: false
 # SQLite 数据库文件路径
 # Docker 部署时请设为 /data/swallow.db（对应 compose 的持久化卷）
 dbPath: ./swallow.db
@@ -21,13 +25,13 @@ reportRateLimit: 30
 #   Nginx 在另一台机器    → ["10.0.0.3"]        （Nginx 的具体 IP）
 trustedProxies: []
 
-# GitHub OAuth（留空 clientId 则禁用鉴权，仅供本地开发）
+# GitHub OAuth（生产启动必须配置完整；缺失时拒绝启动）
 github:
   clientId: ""
   clientSecret: ""
-  # 允许登录的 GitHub 用户名白名单；为空则允许任意登录用户
+  # 管理员 GitHub 用户名白名单；不能为空
   allowedUsers:
     - your-github-username
 
 # 调试日志
-isDebug: true
+isDebug: false

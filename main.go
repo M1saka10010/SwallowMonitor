@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,6 +34,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
+	if err := validateSecurityConfig(cfg); err != nil {
+		log.Fatalf("unsafe configuration: %v", err)
+	}
 
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
@@ -40,7 +47,9 @@ func main() {
 	mux := http.NewServeMux()
 	server.New(cfg, st, mux, web.Handler())
 
-	httpServer := &http.Server{Addr: cfg.Listen, Handler: mux}
+	httpServer := &http.Server{Addr: cfg.Listen, Handler: publicURLHostHandler(cfg.PublicURL, mux),
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
+		IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 
 	// Background maintenance: downsample aggregation + retention pruning.
 	maintCtx, stopMaint := context.WithCancel(context.Background())
@@ -64,6 +73,64 @@ func main() {
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("graceful shutdown error: %v", err)
 	}
+}
+
+func publicURLHostHandler(publicURL string, next http.Handler) http.Handler {
+	u, err := url.Parse(publicURL)
+	if err != nil {
+		panic("publicURLHostHandler called with invalid public URL")
+	}
+	expected := u.Host
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" && r.Method == http.MethodGet {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok\n"))
+			return
+		}
+		if !strings.EqualFold(r.Host, expected) {
+			http.Error(w, "misdirected request", http.StatusMisdirectedRequest)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Development authentication bypass is opt-in and never binds a public socket.
+func validateSecurityConfig(cfg *model.Config) error {
+	if cfg.InsecureDevelopment {
+		host, _, err := net.SplitHostPort(cfg.Listen)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+			return fmt.Errorf("insecureDevelopment requires an explicit loopback listen address")
+		}
+		if cfg.PublicURL == "" {
+			cfg.PublicURL = "http://" + cfg.Listen
+		}
+		u, err := url.Parse(cfg.PublicURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host != cfg.Listen || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+			return fmt.Errorf("development publicUrl must match the loopback listen origin (or be omitted)")
+		}
+		cfg.PublicURL = strings.TrimSuffix(cfg.PublicURL, "/")
+		return nil
+	}
+	if strings.TrimSpace(cfg.GitHub.ClientID) == "" || strings.TrimSpace(cfg.GitHub.ClientSecret) == "" {
+		return fmt.Errorf("production requires GitHub clientId and clientSecret")
+	}
+	if len(cfg.GitHub.AllowedUsers) == 0 {
+		return fmt.Errorf("production requires a non-empty GitHub allowedUsers list")
+	}
+	for _, user := range cfg.GitHub.AllowedUsers {
+		if strings.TrimSpace(user) == "" {
+			return fmt.Errorf("allowedUsers must not contain empty names")
+		}
+	}
+	u, err := url.Parse(cfg.PublicURL)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return fmt.Errorf("production publicUrl must be an HTTPS origin")
+	}
+	cfg.PublicURL = strings.TrimSuffix(cfg.PublicURL, "/")
+	return nil
 }
 
 func loadConfig(path string) (*model.Config, error) {

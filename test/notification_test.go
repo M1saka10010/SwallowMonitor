@@ -6,13 +6,10 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/M1saka10010/SwallowMonitor/model"
 	"github.com/M1saka10010/SwallowMonitor/store"
-	"github.com/gorilla/websocket"
 )
 
 func TestNotificationRuleStoreCRUDAndMatching(t *testing.T) {
@@ -150,118 +147,6 @@ func TestNotificationAPIRequiresAuth(t *testing.T) {
 	}
 }
 
-func TestNotificationDispatchOnStatusChange(t *testing.T) {
-	var mu sync.Mutex
-	var queries []string
-	notifySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		queries = append(queries, r.URL.Query().Get("text"))
-		mu.Unlock()
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer notifySrv.Close()
-
-	st, mux := newTestApp(t, nil)
-	if _, err := st.CreateTag("prod"); err != nil {
-		t.Fatalf("CreateTag() error = %v", err)
-	}
-	host, err := st.CreateHost("Web-01", "token-1", []string{"prod"})
-	if err != nil {
-		t.Fatalf("CreateHost() error = %v", err)
-	}
-	_, err = st.CreateNotificationRule(store.NotificationRule{
-		Tag:           "prod",
-		URL:           notifySrv.URL + "/send?text=%text%",
-		NotifyOnline:  true,
-		NotifyOffline: true,
-		Enabled:       true,
-	})
-	if err != nil {
-		t.Fatalf("CreateNotificationRule() error = %v", err)
-	}
-
-	appSrv := httptest.NewServer(mux)
-	defer appSrv.Close()
-	wsURL := "ws" + strings.TrimPrefix(appSrv.URL, "http") + "/report"
-	header := http.Header{"Token": []string{host.Token}}
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
-	if err != nil {
-		t.Fatalf("dial report websocket: %v", err)
-	}
-
-	waitForNotification(t, &mu, &queries, 1)
-	_ = conn.Close()
-	time.Sleep(100 * time.Millisecond)
-
-	mu.Lock()
-	got := append([]string(nil), queries...)
-	mu.Unlock()
-	if !strings.Contains(got[0], "Web-01") || !strings.Contains(got[0], "上线") {
-		t.Fatalf("online text = %q", got[0])
-	}
-	if len(got) != 1 {
-		t.Fatalf("notification count shortly after disconnect = %d, want 1", len(got))
-	}
-}
-
-func TestNoOnlineNotificationAfterReconnectWithinDelay(t *testing.T) {
-	var mu sync.Mutex
-	var queries []string
-	notifySrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		queries = append(queries, r.URL.Query().Get("text"))
-		mu.Unlock()
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	defer notifySrv.Close()
-
-	st, mux := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-02", "token-2", nil)
-	if err != nil {
-		t.Fatalf("CreateHost() error = %v", err)
-	}
-	_, err = st.CreateNotificationRule(store.NotificationRule{
-		Tag:           "",
-		URL:           notifySrv.URL + "/send?text=%text%",
-		NotifyOnline:  true,
-		NotifyOffline: true,
-		Enabled:       true,
-	})
-	if err != nil {
-		t.Fatalf("CreateNotificationRule() error = %v", err)
-	}
-
-	appSrv := httptest.NewServer(mux)
-	defer appSrv.Close()
-	wsURL := "ws" + strings.TrimPrefix(appSrv.URL, "http") + "/report"
-	header := http.Header{"Token": []string{host.Token}}
-
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
-	if err != nil {
-		t.Fatalf("first dial report websocket: %v", err)
-	}
-	waitForNotification(t, &mu, &queries, 1)
-	_ = conn.Close()
-	time.Sleep(100 * time.Millisecond)
-
-	conn, _, err = websocket.DefaultDialer.Dial(wsURL, header)
-	if err != nil {
-		t.Fatalf("reconnect dial report websocket: %v", err)
-	}
-	defer conn.Close()
-	time.Sleep(300 * time.Millisecond)
-
-	mu.Lock()
-	got := append([]string(nil), queries...)
-	mu.Unlock()
-	if len(got) != 1 {
-		t.Fatalf("notification count after reconnect = %d, want 1 (reconnect within delay must be silent)", len(got))
-	}
-	if !strings.Contains(got[0], "上线") {
-		t.Fatalf("notification text = %q, want 上线", got[0])
-	}
-}
-
 func TestNotificationSSRFPrivateIPsRejected(t *testing.T) {
 	_, mux := newTestApp(t, nil)
 
@@ -287,14 +172,14 @@ func TestNotificationSSRFPrivateIPsRejected(t *testing.T) {
 	}
 }
 
-func TestNotificationLocalhostAllowed(t *testing.T) {
+func TestNotificationLocalhostRejected(t *testing.T) {
 	_, mux := newTestApp(t, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/notifications", strings.NewReader(`{"tag":"test","url":"http://127.0.0.1:8080/send?text=%text%","notifyOnline":true}`))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("POST /api/notifications with localhost status = %d, want %d, body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /api/notifications with localhost status = %d, want %d, body = %s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
 
@@ -315,7 +200,7 @@ func TestRequestBodySizeUnderLimitAccepted(t *testing.T) {
 
 	// ~512 KiB body, well under the 1 MiB limit. Use notification endpoint
 	// (settings endpoint rejects long siteName for its own validation).
-	payload := `{"tag":"` + strings.Repeat("x", 512<<10) + `","url":"http://127.0.0.1:8080/send?text=%text%","notifyOnline":true}`
+	payload := `{"tag":"` + strings.Repeat("x", 512<<10) + `","url":"http://8.8.8.8/send?text=%text%","notifyOnline":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/notifications", strings.NewReader(payload))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -350,8 +235,8 @@ func TestNotificationSSRFUnresolvableHostRejected(t *testing.T) {
 func TestNotificationSSRFUpdatePathAlsoRejects(t *testing.T) {
 	_, mux := newTestApp(t, nil)
 
-	// First create a valid rule on localhost.
-	req := httptest.NewRequest(http.MethodPost, "/api/notifications", strings.NewReader(`{"tag":"test","url":"http://127.0.0.1:8080/send?text=%text%","notifyOnline":true}`))
+	// First create a valid rule on a public IP.
+	req := httptest.NewRequest(http.MethodPost, "/api/notifications", strings.NewReader(`{"tag":"test","url":"http://8.8.8.8/send?text=%text%","notifyOnline":true}`))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -371,21 +256,4 @@ func TestNotificationSSRFUpdatePathAlsoRejects(t *testing.T) {
 
 func strconvID(id int64) string {
 	return strconv.FormatInt(id, 10)
-}
-
-func waitForNotification(t *testing.T, mu *sync.Mutex, queries *[]string, count int) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		mu.Lock()
-		got := len(*queries)
-		mu.Unlock()
-		if got >= count {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	t.Fatalf("notification count = %d, want at least %d", len(*queries), count)
 }

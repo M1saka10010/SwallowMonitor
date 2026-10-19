@@ -20,7 +20,7 @@ func newTestApp(t *testing.T, cfg *model.Config) (*store.Store, *http.ServeMux) 
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	if cfg == nil {
-		cfg = &model.Config{}
+		cfg = &model.Config{InsecureDevelopment: true}
 	}
 	mux := http.NewServeMux()
 	server.New(cfg, st, mux, http.NotFoundHandler())

@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -41,15 +42,33 @@ func TestMeLoginLogoutAuthStates(t *testing.T) {
 		t.Fatalf("auth /api/me anonymous status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/logout", nil)
+	req = httptest.NewRequest(http.MethodPost, "/logout", nil)
+	req.Header.Set("Origin", "http://example.test")
 	rec = httptest.NewRecorder()
 	authMux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusFound {
-		t.Fatalf("/logout status = %d, want %d", rec.Code, http.StatusFound)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("/logout status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
 	cookies := rec.Result().Cookies()
 	if len(cookies) == 0 || cookies[0].Name != "swallow_session" || cookies[0].MaxAge != -1 {
 		t.Fatalf("logout cookies = %#v", cookies)
+	}
+}
+
+func TestNoOAuthProductionRejectsManagement(t *testing.T) {
+	st, mux := newTestApp(t, &model.Config{})
+	if _, err := st.CreateHost("private-token-host", "secret-production-token", nil); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/hosts", nil))
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "secret-production-token") {
+		t.Fatalf("anonymous hosts: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/hosts", strings.NewReader(`{"name":"unauthorized"}`)))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous write status: %d", w.Code)
 	}
 }
 
@@ -85,7 +104,7 @@ func TestEventsStreamsRetryStatusAndUsageData(t *testing.T) {
 	}
 	defer conn.Close()
 
-	usageData := []byte(`{"cpuUsage":42,"timestamp":1234}`)
+	usageData := []byte(fmt.Sprintf(`{"cpuUsage":42,"timestamp":%d}`, time.Now().Unix()))
 	if err := conn.WriteJSON(model.Envelope{Type: model.TypeSystemUsage, Data: usageData}); err != nil {
 		t.Fatalf("write usage envelope: %v", err)
 	}

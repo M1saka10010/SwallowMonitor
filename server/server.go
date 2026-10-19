@@ -93,6 +93,9 @@ func (s *Server) debugf(format string, args ...any) {
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Vary", "Cookie")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)

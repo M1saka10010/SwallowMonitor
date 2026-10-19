@@ -554,7 +554,8 @@ func TestReportWebSocketAuthInfoUsageAndBadMessages(t *testing.T) {
 	}
 	waitForHost(t, st, host.PublicID, func(h *store.Host) bool { return h.Hostname == "reported.local" && h.Cores == 4 })
 
-	usage := model.SystemUsage{CPUUsage: 12.5, MemoryTotal: 100, MemoryUsed: 50, Timestamp: 777}
+	before := time.Now().Unix()
+	usage := model.SystemUsage{CPUUsage: 12.5, MemoryTotal: 100, MemoryUsed: 50, Timestamp: uint64(before + 120)}
 	usageData, err := json.Marshal(usage)
 	if err != nil {
 		t.Fatalf("marshal usage: %v", err)
@@ -562,13 +563,13 @@ func TestReportWebSocketAuthInfoUsageAndBadMessages(t *testing.T) {
 	if err := conn.WriteJSON(model.Envelope{Type: model.TypeSystemUsage, Data: usageData}); err != nil {
 		t.Fatalf("write system usage: %v", err)
 	}
-	waitForUsage(t, st, host.PublicID, 777)
+	waitForUsage(t, st, host.PublicID, usage.Timestamp)
 	got, err := st.GetHost(host.PublicID)
 	if err != nil {
 		t.Fatalf("GetHost() after usage error = %v", err)
 	}
-	if got.LastSeen != 777 {
-		t.Fatalf("LastSeen after usage = %d, want 777", got.LastSeen)
+	if got.LastSeen < before || got.LastSeen > time.Now().Unix() {
+		t.Fatalf("LastSeen after usage = %d, want server time", got.LastSeen)
 	}
 }
 

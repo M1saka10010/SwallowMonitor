@@ -20,7 +20,7 @@ export function AppShell() {
         <div role="radiogroup" aria-label="主题" className="flex items-center gap-0.5 rounded-md border border-line bg-surface p-0.5 shadow-[inset_0_1px_0_var(--edge-light)]">
           {([["auto", "自动"], ["light", "浅色"], ["dark", "深色"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={theme === value} title={value === "auto" ? "跟随系统" : undefined} onClick={() => setTheme(value)} className={`min-h-8 rounded-[4px] px-2.5 text-xs transition-colors ${theme === value ? "bg-ink font-medium text-canvas" : "text-muted hover:text-ink"}`}>{label}</button>)}
         </div>
-        {auth.loggedIn ? <>{auth.authEnabled && <a href="/logout" className="inline-flex min-h-11 items-center text-sm text-muted transition-colors hover:text-ink">退出</a>}</> : <a href="/login" className="inline-flex min-h-11 items-center text-sm font-medium text-ink underline underline-offset-4">登录</a>}
+        {auth.loggedIn ? <>{auth.authEnabled && <form action="/logout" method="post"><button type="submit" className="inline-flex min-h-11 items-center text-sm text-muted transition-colors hover:text-ink">退出</button></form>}</> : <a href="/login" className="inline-flex min-h-11 items-center text-sm font-medium text-ink underline underline-offset-4">登录</a>}
       </div>
     </div></header>
     <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-8"><Outlet /></main>

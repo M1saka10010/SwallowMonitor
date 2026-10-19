@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -9,6 +10,20 @@ import (
 
 	"github.com/M1saka10010/SwallowMonitor/store"
 )
+
+const maxHostNicknameRunes = 100
+
+func validAgentToken(token string) bool {
+	if len(token) > 128 {
+		return false
+	}
+	for _, c := range token {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || strings.ContainsRune("._~-", c)) {
+			return false
+		}
+	}
+	return true
+}
 
 // hostView is the API representation of a host with derived fields.
 type hostView struct {
@@ -124,7 +139,7 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 // apiMe reports the current authentication state for the web client.
 func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{"authEnabled": s.oauth != nil, "user": "", "loggedIn": false}
-	if s.oauth == nil {
+	if s.oauth == nil && s.cfg.InsecureDevelopment {
 		// No OAuth configured: management is open to everyone.
 		resp["loggedIn"] = true
 	} else if user, ok := s.currentUser(r); ok {
@@ -341,7 +356,9 @@ func (s *Server) apiDeleteTag(w http.ResponseWriter, r *http.Request, id int64) 
 }
 
 func (s *Server) apiListHosts(w http.ResponseWriter, r *http.Request) {
-	hosts, err := s.store.ListHosts()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	hosts, latestByHost, err := s.store.ListHostsWithLatestUsageContext(ctx, maxPublicHosts)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -353,18 +370,21 @@ func (s *Server) apiListHosts(w http.ResponseWriter, r *http.Request) {
 		if !canManage {
 			h.Token = "" // never expose tokens to anonymous viewers
 		}
-		latest, _ := s.store.LatestUsage(h.PublicID)
 		views = append(views, hostView{
 			Host:   h,
 			Online: s.isOnline(h, now),
-			Latest: latest,
+			Latest: latestByHost[h.PublicID],
 		})
 	}
 	writeJSON(w, http.StatusOK, views)
 }
 
+// maxPublicHosts bounds the public overview response while preserving its
+// existing array shape for current clients.
+const maxPublicHosts = 500
+
 func (s *Server) apiGetHost(w http.ResponseWriter, r *http.Request, publicID string) {
-	h, err := s.store.GetHost(publicID)
+	h, err := s.store.GetHostContext(r.Context(), publicID)
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -376,7 +396,7 @@ func (s *Server) apiGetHost(w http.ResponseWriter, r *http.Request, publicID str
 	if !s.canManage(r) {
 		h.Token = ""
 	}
-	latest, _ := s.store.LatestUsage(publicID)
+	latest, _ := s.store.LatestUsageContext(r.Context(), publicID)
 	writeJSON(w, http.StatusOK, hostView{
 		Host:   h,
 		Online: s.isOnline(h, time.Now().Unix()),
@@ -397,7 +417,17 @@ func (s *Server) apiCreateHost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nickname required", http.StatusBadRequest)
 		return
 	}
-	h, err := s.store.CreateHost(strings.TrimSpace(body.Nickname), strings.TrimSpace(body.Token), cleanTags(body.Tags))
+	body.Nickname = strings.TrimSpace(body.Nickname)
+	body.Token = strings.TrimSpace(body.Token)
+	if len([]rune(body.Nickname)) > maxHostNicknameRunes {
+		http.Error(w, "nickname too long", http.StatusBadRequest)
+		return
+	}
+	if !validAgentToken(body.Token) {
+		http.Error(w, "token contains unsupported characters or is too long", http.StatusBadRequest)
+		return
+	}
+	h, err := s.store.CreateHost(body.Nickname, body.Token, cleanTags(body.Tags))
 	if err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -418,6 +448,10 @@ func (s *Server) apiUpdateHost(w http.ResponseWriter, r *http.Request, publicID 
 		http.Error(w, "nickname required", http.StatusBadRequest)
 		return
 	}
+	if len([]rune(strings.TrimSpace(body.Nickname))) > maxHostNicknameRunes {
+		http.Error(w, "nickname too long", http.StatusBadRequest)
+		return
+	}
 	err := s.store.UpdateHost(publicID, strings.TrimSpace(body.Nickname), cleanTags(body.Tags))
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -434,7 +468,10 @@ func (s *Server) apiDeleteHost(w http.ResponseWriter, r *http.Request, publicID 
 	if !s.requireUser(w, r) {
 		return
 	}
-	err := s.store.DeleteHost(publicID)
+	err := s.hub.RevokeAgent(publicID, func() error { return s.store.DeleteHost(publicID) })
+	if err == nil {
+		s.cancelOfflineNotification(publicID)
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -451,6 +488,10 @@ func (s *Server) apiUsage(w http.ResponseWriter, r *http.Request, publicID strin
 	now := time.Now().Unix()
 	from := parseInt(q.Get("from"), now-3600)
 	to := parseInt(q.Get("to"), now)
+	if from < 0 || to < 0 || from > now+300 || to > now+300 {
+		http.Error(w, "invalid timestamp range", http.StatusBadRequest)
+		return
+	}
 
 	// Clamp the requested span to a sane maximum (matches the largest UI range)
 	// to prevent oversized scans from hand-crafted requests.
@@ -461,7 +502,9 @@ func (s *Server) apiUsage(w http.ResponseWriter, r *http.Request, publicID strin
 		from = to - maxUsageSpan
 	}
 
-	points, err := s.store.QueryUsage(publicID, from, to)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	points, err := s.store.QueryUsageContext(ctx, publicID, from, to)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -476,7 +519,7 @@ func (s *Server) isOnline(h *store.Host, now int64) bool {
 	if s.hub.IsOnline(h.PublicID) {
 		return true
 	}
-	return h.LastSeen > 0 && now-h.LastSeen < s.cfg.OfflineTimeout
+	return h.LastSeen > 0 && h.LastSeen <= now && now-h.LastSeen < s.cfg.OfflineTimeout
 }
 
 func parseInt(s string, def int64) int64 {

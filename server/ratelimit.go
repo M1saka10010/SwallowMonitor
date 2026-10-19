@@ -15,10 +15,11 @@ const cleanupThreshold = 1000
 // ipRateLimiter is a per-IP sliding-window rate limiter. Each IP may make
 // at most max requests within window. It is safe for concurrent use.
 type ipRateLimiter struct {
-	mu     sync.Mutex
-	counts map[string][]time.Time
-	max    int
-	window time.Duration
+	mu          sync.Mutex
+	counts      map[string][]time.Time
+	max         int
+	window      time.Duration
+	nextCleanup time.Time
 }
 
 // newIPRateLimiter creates a limiter that allows max requests per window.
@@ -40,8 +41,12 @@ func (rl *ipRateLimiter) Allow(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	if len(rl.counts) > cleanupThreshold {
+	if len(rl.counts) > cleanupThreshold && !now.Before(rl.nextCleanup) {
 		rl.cleanupLocked(cutoff)
+		rl.nextCleanup = now.Add(rl.window)
+	}
+	if _, exists := rl.counts[ip]; !exists && len(rl.counts) >= 10000 {
+		return false
 	}
 
 	ts := rl.counts[ip]
@@ -98,6 +103,9 @@ func (s *Server) clientIP(r *http.Request) string {
 	parts := strings.Split(xff, ",")
 	for i := len(parts) - 1; i >= 0; i-- {
 		ip := strings.TrimSpace(parts[i])
+		if net.ParseIP(ip) == nil {
+			return host
+		}
 		if ip != "" && !s.isTrustedProxy(ip) {
 			return ip
 		}

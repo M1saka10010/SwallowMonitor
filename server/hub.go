@@ -3,18 +3,23 @@ package server
 import (
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 // Hub tracks live agent connections and browser overview subscribers.
 type Hub struct {
-	mu sync.RWMutex
+	lifecycle sync.RWMutex
+	mu        sync.RWMutex
 	// agents maps public_id -> the host's latest agent connection. A new
 	// connection evicts (closes) any previous one for the same host.
 	agents map[string]*websocket.Conn
 	// overview holds subscribers that receive events for all hosts.
-	overview map[*subscriber]struct{}
+	overview       map[*subscriber]struct{}
+	eventIPs       map[string]int
+	eventCount     int
+	messageLimiter *ipRateLimiter
 }
 
 type subscriber struct {
@@ -24,8 +29,50 @@ type subscriber struct {
 // NewHub creates an empty hub.
 func NewHub() *Hub {
 	return &Hub{
-		agents:   make(map[string]*websocket.Conn),
-		overview: make(map[*subscriber]struct{}),
+		agents:         make(map[string]*websocket.Conn),
+		overview:       make(map[*subscriber]struct{}),
+		eventIPs:       make(map[string]int),
+		messageLimiter: newIPRateLimiter(reportMessagesPerMinute, time.Minute),
+	}
+}
+
+// RevokeAgent serializes revocation with report authentication and ingestion.
+// revoke must delete/invalidate the host in storage; it must not call Hub methods.
+// On failure the existing connection is preserved.
+func (h *Hub) RevokeAgent(publicID string, revoke func() error) error {
+	h.lifecycle.Lock()
+	defer h.lifecycle.Unlock()
+	if err := revoke(); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	c := h.agents[publicID]
+	delete(h.agents, publicID)
+	h.mu.Unlock()
+	if c != nil {
+		_ = c.Close()
+	}
+	return nil
+}
+
+func (h *Hub) acquireEvents(ip string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.eventCount >= maxEventConnections || h.eventIPs[ip] >= maxEventConnectionsPerIP {
+		return false
+	}
+	h.eventCount++
+	h.eventIPs[ip]++
+	return true
+}
+
+func (h *Hub) releaseEvents(ip string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.eventCount--
+	h.eventIPs[ip]--
+	if h.eventIPs[ip] == 0 {
+		delete(h.eventIPs, ip)
 	}
 }
 

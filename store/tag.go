@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -179,6 +180,28 @@ func (s *Store) existingTagNames(tags []string) ([]string, error) {
 }
 
 func (s *Store) loadTagsForHosts(hosts []*Host) error {
+	return s.loadTagsForHostsContext(context.Background(), hosts)
+}
+
+func (s *Store) loadTagsForHostContext(ctx context.Context, host *Host) error {
+	host.Tags = []string{}
+	rows, err := s.db.QueryContext(ctx, `SELECT t.name FROM host_tags ht JOIN tags t ON t.id = ht.tag_id
+		WHERE ht.public_id = ? ORDER BY t.name`, host.PublicID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		host.Tags = append(host.Tags, name)
+	}
+	return rows.Err()
+}
+
+func (s *Store) loadTagsForHostsContext(ctx context.Context, hosts []*Host) error {
 	if len(hosts) == 0 {
 		return nil
 	}
@@ -187,7 +210,14 @@ func (s *Store) loadTagsForHosts(hosts []*Host) error {
 		h.Tags = []string{}
 		byID[h.PublicID] = h
 	}
-	rows, err := s.db.Query(`SELECT ht.public_id, t.name FROM host_tags ht JOIN tags t ON t.id = ht.tag_id ORDER BY t.name`)
+	args := make([]any, len(hosts))
+	placeholders := make([]string, len(hosts))
+	for i, h := range hosts {
+		args[i] = h.PublicID
+		placeholders[i] = "?"
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT ht.public_id, t.name FROM host_tags ht JOIN tags t ON t.id = ht.tag_id
+		WHERE ht.public_id IN (`+strings.Join(placeholders, ",")+`) ORDER BY t.name`, args...)
 	if err != nil {
 		return err
 	}

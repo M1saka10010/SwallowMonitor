@@ -1,11 +1,14 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/M1saka10010/SwallowMonitor/model"
@@ -69,6 +72,9 @@ func randomHex(n int) (string, error) {
 // CreateHost inserts a new host. If token is empty, one is generated.
 // Returns the created host including its token.
 func (s *Store) CreateHost(nickname, token string, tags []string) (*Host, error) {
+	if len(nickname) > 400 || len(token) > 128 {
+		return nil, fmt.Errorf("host fields too long")
+	}
 	existingTags, err := s.existingTagNames(tags)
 	if err != nil {
 		return nil, err
@@ -117,7 +123,12 @@ func (s *Store) UpdateHost(publicID, nickname string, tags []string) error {
 
 // DeleteHost removes a host and its usage history.
 func (s *Store) DeleteHost(publicID string) error {
-	res, err := s.db.Exec(`DELETE FROM hosts WHERE public_id = ?`, publicID)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`DELETE FROM hosts WHERE public_id = ?`, publicID)
 	if err != nil {
 		return err
 	}
@@ -125,9 +136,12 @@ func (s *Store) DeleteHost(publicID string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
-	_, _ = s.db.Exec(`DELETE FROM usages WHERE public_id = ?`, publicID)
-	_, _ = s.db.Exec(`DELETE FROM host_tags WHERE public_id = ?`, publicID)
-	return nil
+	for _, table := range []string{"usages", "usages_5m", "usages_1h", "host_tags"} {
+		if _, err := tx.Exec("DELETE FROM "+table+" WHERE public_id = ?", publicID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 const hostCols = `public_id, token, nickname, COALESCE(tags,'[]'), COALESCE(host_id,''), COALESCE(hostname,''),
@@ -152,7 +166,22 @@ func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 // ListHosts returns all hosts. The token is included; callers must strip it for
 // unauthenticated responses.
 func (s *Store) ListHosts() ([]*Host, error) {
-	rows, err := s.db.Query(`SELECT ` + hostCols + ` FROM hosts ORDER BY created_at`)
+	return s.ListHostsContext(context.Background(), 0)
+}
+
+// ListHostsContext returns hosts ordered by creation time. A positive limit
+// bounds the number of returned hosts.
+func (s *Store) ListHostsContext(ctx context.Context, limit int) ([]*Host, error) {
+	query := `SELECT ` + hostCols + ` FROM hosts ORDER BY created_at`
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if limit > 0 {
+		rows, err = s.db.QueryContext(ctx, query+` LIMIT ?`, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, query)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -169,13 +198,72 @@ func (s *Store) ListHosts() ([]*Host, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return hosts, s.loadTagsForHosts(hosts)
+	return hosts, s.loadTagsForHostsContext(ctx, hosts)
+}
+
+// ListHostsWithLatestUsageContext returns a bounded host list and each host's
+// most recent usage sample without issuing one query per host.
+func (s *Store) ListHostsWithLatestUsageContext(ctx context.Context, limit int) ([]*Host, map[string]*model.SystemUsage, error) {
+	hosts, err := s.ListHostsContext(ctx, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	latest, err := s.latestUsageForHostsContext(ctx, hosts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return hosts, latest, nil
+}
+
+func (s *Store) latestUsageForHostsContext(ctx context.Context, hosts []*Host) (map[string]*model.SystemUsage, error) {
+	latest := make(map[string]*model.SystemUsage, len(hosts))
+	if len(hosts) == 0 {
+		return latest, nil
+	}
+
+	args := make([]any, len(hosts))
+	placeholders := make([]string, len(hosts))
+	for i, h := range hosts {
+		args[i] = h.PublicID
+		placeholders[i] = "?"
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT u.public_id, `+usageCols+` FROM usages u
+		WHERE u.public_id IN (`+strings.Join(placeholders, ",")+`)
+		AND u.id = (SELECT id FROM usages WHERE public_id = u.public_id ORDER BY ts DESC, id DESC LIMIT 1)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var publicID string
+		u := &model.SystemUsage{}
+		if err := rows.Scan(&publicID, &u.Timestamp, &u.CPUUsage, &u.MemoryTotal, &u.MemoryUsed,
+			&u.SwapTotal, &u.SwapUsed, &u.DiskTotal, &u.DiskUsed, &u.NetRecv, &u.NetSend,
+			&u.NetRecvSpeed, &u.NetSendSpeed, &u.Load1, &u.Load5, &u.Load15); err != nil {
+			return nil, err
+		}
+		latest[publicID] = u
+	}
+	return latest, rows.Err()
+}
+
+func (s *Store) LatestUsageContext(ctx context.Context, publicID string) (*model.SystemUsage, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+usageCols+` FROM usages WHERE public_id = ? ORDER BY ts DESC LIMIT 1`, publicID)
+	u, err := scanUsage(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return u, err
 }
 
 // GetHost returns a single host by public id. The token is included; callers
 // must strip it for unauthenticated responses.
 func (s *Store) GetHost(publicID string) (*Host, error) {
-	row := s.db.QueryRow(`SELECT `+hostCols+` FROM hosts WHERE public_id = ?`, publicID)
+	return s.GetHostContext(context.Background(), publicID)
+}
+
+func (s *Store) GetHostContext(ctx context.Context, publicID string) (*Host, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+hostCols+` FROM hosts WHERE public_id = ?`, publicID)
 	h, err := scanHost(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -183,7 +271,7 @@ func (s *Store) GetHost(publicID string) (*Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.loadTagsForHosts([]*Host{h}); err != nil {
+	if err := s.loadTagsForHostContext(ctx, h); err != nil {
 		return nil, err
 	}
 	return h, nil

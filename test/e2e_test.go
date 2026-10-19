@@ -47,7 +47,7 @@ func startE2EServer(t *testing.T) *e2eServer {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	dbPath := filepath.Join(tmpDir, "swallow.db")
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
-	cfg := fmt.Sprintf("listen: %q\ndbPath: %q\nofflineTimeout: 90\n", addr, dbPath)
+	cfg := fmt.Sprintf("insecureDevelopment: true\nlisten: %q\ndbPath: %q\nofflineTimeout: 90\n", addr, dbPath)
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestE2ENotificationSSRF(t *testing.T) {
 		code int
 	}{
 		{"private IP", "http://10.0.0.1/send?text=%text%", http.StatusBadRequest},
-		{"localhost", "http://127.0.0.1:9999/send?text=%text%", http.StatusCreated},
+		{"localhost", "http://127.0.0.1:9999/send?text=%text%", http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -407,7 +407,7 @@ func TestE2EGracefulShutdown(t *testing.T) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	dbPath := filepath.Join(tmpDir, "swallow.db")
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
-	cfg := fmt.Sprintf("listen: %q\ndbPath: %q\n", addr, dbPath)
+	cfg := fmt.Sprintf("insecureDevelopment: true\nlisten: %q\ndbPath: %q\n", addr, dbPath)
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
