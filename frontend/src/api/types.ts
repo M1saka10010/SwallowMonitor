@@ -1,5 +1,9 @@
+export interface AgentRelease { version: string; assets: string[] }
+export interface AgentReleases { releases: AgentRelease[]; latestVersion: string; checkedAt: number; stale: boolean; error?: string }
+
 export interface AuthState {
   authEnabled: boolean;
+  monitorVersion?: string;
   loggedIn: boolean;
   user: string;
 }

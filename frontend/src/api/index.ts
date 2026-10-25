@@ -1,7 +1,8 @@
 import { jsonBody, requestJson } from "./client";
-import type { AuthState, Host, HostEnrollment, NotificationRule, SiteSettings, Tag, Usage } from "./types";
+import type { AgentReleases, AuthState, Host, HostEnrollment, NotificationRule, SiteSettings, Tag, Usage } from "./types";
 
 export const api = {
+  agentReleases: (signal?: AbortSignal) => requestJson<AgentReleases>("/api/agent/releases", { signal }),
   me: () => requestJson<AuthState>("/api/me"),
   settings: () => requestJson<SiteSettings>("/api/settings"),
   updateSettings: (settings: SiteSettings) => requestJson<SiteSettings>("/api/settings", { method: "PATCH", body: jsonBody(settings) }),

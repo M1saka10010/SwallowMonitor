@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/M1saka10010/SwallowMonitor/buildinfo"
 	"github.com/M1saka10010/SwallowMonitor/store"
 )
 
@@ -26,6 +27,9 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 
 	switch {
+	case len(parts) == 2 && parts[0] == "agent" && parts[1] == "releases":
+		s.apiAgentReleases(w, r)
+
 	case len(parts) == 1 && parts[0] == "me":
 		s.apiMe(w, r)
 
@@ -140,6 +144,9 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 	} else if user, ok := s.currentUser(r); ok {
 		resp["loggedIn"] = true
 		resp["user"] = user
+	}
+	if resp["loggedIn"] == true {
+		resp["monitorVersion"] = buildinfo.Version
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

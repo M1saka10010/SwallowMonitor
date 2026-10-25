@@ -28,6 +28,7 @@ type Server struct {
 	store                     *store.Store
 	hub                       *Hub
 	sessions                  *sessionStore
+	agentReleases             agentReleaseCache
 	oauth                     *oauth2.Config
 	reportLimiter             *ipRateLimiter
 	enrollLimiter             *ipRateLimiter
