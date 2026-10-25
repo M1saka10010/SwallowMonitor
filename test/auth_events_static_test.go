@@ -14,7 +14,6 @@ import (
 	"github.com/M1saka10010/SwallowMonitor/server"
 	"github.com/M1saka10010/SwallowMonitor/store"
 	"github.com/M1saka10010/SwallowMonitor/web"
-	"github.com/gorilla/websocket"
 )
 
 func TestMeLoginLogoutAuthStates(t *testing.T) {
@@ -57,12 +56,12 @@ func TestMeLoginLogoutAuthStates(t *testing.T) {
 
 func TestNoOAuthProductionRejectsManagement(t *testing.T) {
 	st, mux := newTestApp(t, &model.Config{})
-	if _, err := st.CreateHost("private-token-host", "secret-production-token", nil); err != nil {
+	if _, err := st.CreateHost("private-token-host", reportTestPublicKey("secret-production-token"), nil); err != nil {
 		t.Fatal(err)
 	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/hosts", nil))
-	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "secret-production-token") {
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), reportTestPublicKey("secret-production-token")) {
 		t.Fatalf("anonymous hosts: %d %s", w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()
@@ -74,7 +73,7 @@ func TestNoOAuthProductionRejectsManagement(t *testing.T) {
 
 func TestEventsStreamsRetryStatusAndUsageData(t *testing.T) {
 	st, mux := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-01", "token-events", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-events"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -98,7 +97,7 @@ func TestEventsStreamsRetryStatusAndUsageData(t *testing.T) {
 	go readUntilContains(resp.Body, readDone, `"type":"usage"`)
 
 	wsURL := "ws" + strings.TrimPrefix(appSrv.URL, "http") + "/report"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{"Token": []string{host.Token}})
+	conn, _, err := dialReportTest(wsURL, http.Header{"X-Agent-Public-Key": []string{host.PublicKey}})
 	if err != nil {
 		t.Fatalf("dial report websocket: %v", err)
 	}

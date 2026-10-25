@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,7 +40,11 @@ func main() {
 	}
 	publicIDs := make([]string, hostCount)
 	for i := range publicIDs {
-		h, err := st.CreateHost(fmt.Sprintf("Web-%02d", i), fmt.Sprintf("token-%d", i), nil)
+		key, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			panic(err)
+		}
+		h, err := st.CreateHost(fmt.Sprintf("Web-%02d", i), base64.StdEncoding.EncodeToString(key), nil)
 		if err != nil {
 			panic(err)
 		}

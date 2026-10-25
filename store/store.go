@@ -9,7 +9,8 @@ import (
 
 // Store wraps the SQLite database connection.
 type Store struct {
-	db *sql.DB
+	db                *sql.DB
+	legacyTokenColumn bool
 }
 
 // Open opens (or creates) the SQLite database and applies the schema.
@@ -42,7 +43,7 @@ func (s *Store) migrate() error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS hosts (
 			public_id TEXT PRIMARY KEY,
-			token TEXT UNIQUE NOT NULL,
+			public_key TEXT UNIQUE,
 			nickname TEXT NOT NULL,
 			tags TEXT,
 			host_id TEXT,
@@ -58,6 +59,12 @@ func (s *Store) migrate() error {
 			last_info_json TEXT,
 			last_seen INTEGER,
 			created_at INTEGER
+		)`,
+		`CREATE TABLE IF NOT EXISTS host_enrollments (
+			public_id TEXT PRIMARY KEY,
+			token_hash BLOB NOT NULL UNIQUE,
+			expires_at INTEGER NOT NULL,
+			consumed INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE TABLE IF NOT EXISTS usages (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,10 +158,76 @@ func (s *Store) migrate() error {
 	}
 	// Add columns that may be missing on databases created by older versions.
 	s.ensureColumn("hosts", "tags", "TEXT")
+	if err := s.migratePublicKeys(); err != nil {
+		return err
+	}
 	if err := s.migrateHostTags(); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (s *Store) migratePublicKeys() error {
+	rows, err := s.db.Query("PRAGMA table_info(hosts)")
+	if err != nil {
+		return err
+	}
+	var hasPublicKey bool
+	var publicKeyNotNull bool
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		hasPublicKey = hasPublicKey || name == "public_key"
+		if name == "public_key" {
+			publicKeyNotNull = notNull != 0
+		}
+		s.legacyTokenColumn = s.legacyTokenColumn || name == "token"
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if !hasPublicKey {
+		// Legacy hosts remain unbound; a token is never promoted to a key.
+		if _, err := s.db.Exec("ALTER TABLE hosts ADD COLUMN public_key TEXT"); err != nil {
+			return err
+		}
+	}
+	if publicKeyNotNull {
+		if err := s.rebuildHostsNullable(); err != nil {
+			return err
+		}
+		s.legacyTokenColumn = false
+	}
+	_, err = s.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_hosts_public_key ON hosts(public_key)")
+	return err
+}
+
+func (s *Store) rebuildHostsNullable() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`CREATE TABLE hosts_new (public_id TEXT PRIMARY KEY, public_key TEXT UNIQUE, nickname TEXT NOT NULL, tags TEXT, host_id TEXT, hostname TEXT, os TEXT, platform TEXT, platform_version TEXT, kernel_arch TEXT, model_name TEXT, cores INTEGER, virtualization_role TEXT, boot_time INTEGER, last_info_json TEXT, last_seen INTEGER, created_at INTEGER)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT INTO hosts_new SELECT public_id, public_key, nickname, tags, host_id, hostname, os, platform, platform_version, kernel_arch, model_name, cores, virtualization_role, boot_time, last_info_json, last_seen, created_at FROM hosts`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DROP TABLE hosts`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`ALTER TABLE hosts_new RENAME TO hosts`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ensureColumn adds a column to a table if it does not already exist.

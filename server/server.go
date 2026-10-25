@@ -30,6 +30,7 @@ type Server struct {
 	sessions                  *sessionStore
 	oauth                     *oauth2.Config
 	reportLimiter             *ipRateLimiter
+	enrollLimiter             *ipRateLimiter
 	trustedProxies            []*net.IPNet
 	upgrader                  websocket.Upgrader
 	offlineNotificationMu     sync.Mutex
@@ -65,10 +66,12 @@ func New(cfg *model.Config, st *store.Store, mux *http.ServeMux, webHandler http
 		reportLimit = defaultReportRateLimit
 	}
 	s.reportLimiter = newIPRateLimiter(reportLimit, time.Minute)
+	s.enrollLimiter = newIPRateLimiter(30, time.Minute)
 	s.trustedProxies = parseTrustedProxies(cfg.TrustedProxies)
 
-	// Agent ingest (token auth, no session).
+	// Agent ingest (device public-key proof, no browser session).
 	mux.HandleFunc("/report", s.handleReport)
+	mux.HandleFunc("/enroll", s.handleEnroll)
 
 	// Auth endpoints.
 	mux.HandleFunc("/login", s.handleLogin)

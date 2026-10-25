@@ -210,7 +210,7 @@ func (s *Server) currentUser(r *http.Request) (string, bool) {
 }
 
 // canManage reports whether the requester may perform management operations
-// (and thus see tokens). Without OAuth, explicit development mode is required.
+// (and thus see device public keys). Without OAuth, explicit development mode is required.
 func (s *Server) canManage(r *http.Request) bool {
 	if s.oauth == nil {
 		return s.cfg.InsecureDevelopment

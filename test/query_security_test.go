@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +34,7 @@ func TestUsageRejectsOverflowAndCancels(t *testing.T) {
 
 func TestDeletedHostCannotAcceptSamples(t *testing.T) {
 	st, _ := newTestApp(t, nil)
-	h, err := st.CreateHost("test", "", nil)
+	h, err := st.CreateHost("test", reportTestPublicKey("empty-label"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestJSONResponsesCannotBeCached(t *testing.T) {
 func TestPublicHostListIsBoundedAndIncludesLatestUsage(t *testing.T) {
 	st, mux := newTestApp(t, &model.Config{GitHub: model.GitHubConfig{ClientID: "client"}})
 	for i := 0; i < 501; i++ {
-		h, err := st.CreateHost("host", "", nil)
+		h, err := st.CreateHost("host", reportTestPublicKey(fmt.Sprintf("host-%d", i)), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,9 +78,9 @@ func TestPublicHostListIsBoundedAndIncludesLatestUsage(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	var hosts []struct {
-		PublicID string             `json:"publicId"`
-		Token    string             `json:"token"`
-		Latest   *model.SystemUsage `json:"latest"`
+		PublicID  string             `json:"publicId"`
+		PublicKey string             `json:"publicKey"`
+		Latest    *model.SystemUsage `json:"latest"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&hosts); err != nil {
 		t.Fatal(err)
@@ -88,7 +89,7 @@ func TestPublicHostListIsBoundedAndIncludesLatestUsage(t *testing.T) {
 		t.Fatalf("hosts len=%d, want 500", len(hosts))
 	}
 	for _, h := range hosts {
-		if h.Token != "" {
+		if h.PublicKey != "" {
 			t.Fatalf("public response exposed token for %s", h.PublicID)
 		}
 		if h.Latest == nil || h.Latest.Timestamp != 2 || h.Latest.CPUUsage != 20 {

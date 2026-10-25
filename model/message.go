@@ -16,6 +16,7 @@ type Envelope struct {
 
 // SystemInfo mirrors the agent's system_info data object.
 type SystemInfo struct {
+	AgentVersion         string `json:"agentVersion"`
 	Hostname             string `json:"hostname"`
 	Uptime               uint64 `json:"uptime"`
 	BootTime             uint64 `json:"bootTime"`

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"github.com/M1saka10010/SwallowMonitor/model"
 	"github.com/M1saka10010/SwallowMonitor/store"
-	"github.com/gorilla/websocket"
 	"log"
 	"net"
 	"net/http"
@@ -115,7 +114,7 @@ func TestNotificationStoredPrivateURLAndSecretLogs(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))
 	defer target.Close()
 	st, _ := newNotificationTestApp(t)
-	host, err := st.CreateHost("secret-test", "token", nil)
+	host, err := st.CreateHost("secret-test", reportTestPublicKey("token"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +178,7 @@ func TestNotificationDispatchOnStatusChange(t *testing.T) {
 	if _, err := st.CreateTag("prod"); err != nil {
 		t.Fatalf("CreateTag() error = %v", err)
 	}
-	host, err := st.CreateHost("Web-01", "token-1", []string{"prod"})
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-1"), []string{"prod"})
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -197,8 +196,8 @@ func TestNotificationDispatchOnStatusChange(t *testing.T) {
 	appSrv := httptest.NewServer(mux)
 	defer appSrv.Close()
 	wsURL := "ws" + strings.TrimPrefix(appSrv.URL, "http") + "/report"
-	header := http.Header{"Token": []string{host.Token}}
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	header := http.Header{"X-Agent-Public-Key": []string{host.PublicKey}}
+	conn, _, err := dialReportTest(wsURL, header)
 	if err != nil {
 		t.Fatalf("dial report websocket: %v", err)
 	}
@@ -231,7 +230,7 @@ func TestNoOnlineNotificationAfterReconnectWithinDelay(t *testing.T) {
 	installNotificationTestDial(t, notifySrv)
 
 	st, mux := newNotificationTestApp(t)
-	host, err := st.CreateHost("Web-02", "token-2", nil)
+	host, err := st.CreateHost("Web-02", reportTestPublicKey("token-2"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -249,9 +248,9 @@ func TestNoOnlineNotificationAfterReconnectWithinDelay(t *testing.T) {
 	appSrv := httptest.NewServer(mux)
 	defer appSrv.Close()
 	wsURL := "ws" + strings.TrimPrefix(appSrv.URL, "http") + "/report"
-	header := http.Header{"Token": []string{host.Token}}
+	header := http.Header{"X-Agent-Public-Key": []string{host.PublicKey}}
 
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	conn, _, err := dialReportTest(wsURL, header)
 	if err != nil {
 		t.Fatalf("first dial report websocket: %v", err)
 	}
@@ -259,7 +258,7 @@ func TestNoOnlineNotificationAfterReconnectWithinDelay(t *testing.T) {
 	_ = conn.Close()
 	time.Sleep(100 * time.Millisecond)
 
-	conn, _, err = websocket.DefaultDialer.Dial(wsURL, header)
+	conn, _, err = dialReportTest(wsURL, header)
 	if err != nil {
 		t.Fatalf("reconnect dial report websocket: %v", err)
 	}

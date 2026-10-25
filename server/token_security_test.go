@@ -1,16 +1,19 @@
 package server
 
-import "testing"
+import (
+	"encoding/base64"
+	"strings"
+	"testing"
+)
 
-func TestAgentTokenSafeForInstallerAndYAML(t *testing.T) {
-	for _, token := range []string{"", "0123456789abcdef", "alpha-BETA_1.2~3"} {
-		if !validAgentToken(token) {
-			t.Fatalf("safe token rejected: %q", token)
-		}
+func TestDevicePublicKeyCanonicalEncoding(t *testing.T) {
+	key := reportTestPublicKey("validation")
+	if !validDevicePublicKey(key) {
+		t.Fatal("valid public key rejected")
 	}
-	for _, token := range []string{"--help # comment", "abc#comment", "line1\nreportUrl: evil", "quote'", "space token", string(make([]byte, 129))} {
-		if validAgentToken(token) {
-			t.Fatalf("unsafe token accepted: %q", token)
+	for _, key := range []string{"", "0123456789abcdef", "alpha-BETA_1.2~3", "--help # comment", "line1\nreportUrl: evil", "quote'", "space token", strings.TrimRight(key, "="), key + "\n", base64.StdEncoding.EncodeToString(make([]byte, 31)), base64.StdEncoding.EncodeToString(make([]byte, 33))} {
+		if validDevicePublicKey(key) {
+			t.Fatalf("invalid public key accepted: %q", key)
 		}
 	}
 }

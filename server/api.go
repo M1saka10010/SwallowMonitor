@@ -13,18 +13,6 @@ import (
 
 const maxHostNicknameRunes = 100
 
-func validAgentToken(token string) bool {
-	if len(token) > 128 {
-		return false
-	}
-	for _, c := range token {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || strings.ContainsRune("._~-", c)) {
-			return false
-		}
-	}
-	return true
-}
-
 // hostView is the API representation of a host with derived fields.
 type hostView struct {
 	*store.Host
@@ -110,6 +98,13 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
+
+	case len(parts) == 3 && parts[0] == "hosts" && parts[2] == "enrollment":
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.apiRefreshEnrollment(w, r, parts[1])
 
 	case len(parts) == 2 && parts[0] == "hosts":
 		publicID := parts[1]
@@ -368,7 +363,7 @@ func (s *Server) apiListHosts(w http.ResponseWriter, r *http.Request) {
 	views := make([]hostView, 0, len(hosts))
 	for _, h := range hosts {
 		if !canManage {
-			h.Token = "" // never expose tokens to anonymous viewers
+			h.PublicKey = ""
 		}
 		views = append(views, hostView{
 			Host:   h,
@@ -394,7 +389,7 @@ func (s *Server) apiGetHost(w http.ResponseWriter, r *http.Request, publicID str
 		return
 	}
 	if !s.canManage(r) {
-		h.Token = ""
+		h.PublicKey = ""
 	}
 	latest, _ := s.store.LatestUsageContext(r.Context(), publicID)
 	writeJSON(w, http.StatusOK, hostView{
@@ -409,31 +404,59 @@ func (s *Server) apiCreateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Nickname string   `json:"nickname"`
-		Token    string   `json:"token"`
-		Tags     []string `json:"tags"`
+		Nickname  string   `json:"nickname"`
+		PublicKey string   `json:"publicKey"`
+		Tags      []string `json:"tags"`
+		Token     *string  `json:"token"`
 	}
 	if err := decodeJSON(r.Body, &body); err != nil || strings.TrimSpace(body.Nickname) == "" {
 		http.Error(w, "nickname required", http.StatusBadRequest)
 		return
 	}
+	if body.Token != nil {
+		http.Error(w, "token unsupported", http.StatusBadRequest)
+		return
+	}
 	body.Nickname = strings.TrimSpace(body.Nickname)
-	body.Token = strings.TrimSpace(body.Token)
 	if len([]rune(body.Nickname)) > maxHostNicknameRunes {
 		http.Error(w, "nickname too long", http.StatusBadRequest)
 		return
 	}
-	if !validAgentToken(body.Token) {
-		http.Error(w, "token contains unsupported characters or is too long", http.StatusBadRequest)
+	if body.PublicKey == "" {
+		e, err := s.store.CreateEnrollmentHost(body.Nickname, cleanTags(body.Tags))
+		if err != nil {
+			http.Error(w, "create failed", http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, http.StatusCreated, enrollmentView{e.Host, e.Token, e.ExpiresAt})
 		return
 	}
-	h, err := s.store.CreateHost(body.Nickname, body.Token, cleanTags(body.Tags))
+	h, err := s.store.CreateHost(body.Nickname, body.PublicKey, cleanTags(body.Tags))
 	if err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Token is returned exactly once on creation.
 	writeJSON(w, http.StatusCreated, h)
+}
+
+func (s *Server) apiRefreshEnrollment(w http.ResponseWriter, r *http.Request, publicID string) {
+	if !s.requireUser(w, r) {
+		return
+	}
+	e, err := s.store.RefreshEnrollment(publicID)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if errors.Is(err, store.ErrAlreadyBound) {
+		http.Error(w, "already bound", 409)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", 500)
+		return
+	}
+	writeJSON(w, http.StatusOK, enrollmentView{e.Host, e.Token, e.ExpiresAt})
 }
 
 func (s *Server) apiUpdateHost(w http.ResponseWriter, r *http.Request, publicID string) {

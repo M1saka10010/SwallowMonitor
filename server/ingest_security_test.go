@@ -21,7 +21,7 @@ func securityServer(t *testing.T) (*Server, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	host, err := st.CreateHost("test", "security-token", nil)
+	host, err := st.CreateHost("test", reportTestPublicKey("security-token"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestSecurityReportLimits(t *testing.T) {
 			s, id := securityServer(t)
 			ts := httptest.NewServer(http.HandlerFunc(s.handleReport))
 			defer ts.Close()
-			c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"Token": {"security-token"}})
+			c, _, err := dialReportTest("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"X-Agent-Public-Key": {reportTestPublicKey("security-token")}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,7 +94,7 @@ func TestSecurityReportLimits(t *testing.T) {
 				t.Fatalf("close = %v, want %d", err, want)
 			}
 			if !oversized {
-				retry, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"Token": {"security-token"}})
+				retry, _, err := dialReportTest("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"X-Agent-Public-Key": {reportTestPublicKey("security-token")}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -115,7 +115,7 @@ func TestSecurityReportControlFramesShareHostBudget(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(s.handleReport))
 	defer ts.Close()
 
-	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"Token": {"security-token"}})
+	c, _, err := dialReportTest("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"X-Agent-Public-Key": {reportTestPublicKey("security-token")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestSecurityReportCloseFrameConsumesHostBudget(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(s.handleReport))
 	defer ts.Close()
 
-	c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"Token": {"security-token"}})
+	c, _, err := dialReportTest("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"X-Agent-Public-Key": {reportTestPublicKey("security-token")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestSecurityReconnectPublishesOnlineAfterPublishedOffline(t *testing.T) {
 	defer s.hub.UnsubscribeOverview(sub)
 	defer s.cancelOfflineNotification(id)
 	dial := func() *websocket.Conn {
-		c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"Token": {"security-token"}})
+		c, _, err := dialReportTest("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"X-Agent-Public-Key": {reportTestPublicKey("security-token")}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,7 +240,7 @@ func TestSecurityReplacementDoesNotPublishStaleOffline(t *testing.T) {
 	defer s.hub.UnsubscribeOverview(sub)
 	defer s.cancelOfflineNotification(id)
 	dial := func() *websocket.Conn {
-		c, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"Token": {"security-token"}})
+		c, _, err := dialReportTest("ws"+strings.TrimPrefix(ts.URL, "http"), http.Header{"X-Agent-Public-Key": {reportTestPublicKey("security-token")}})
 		if err != nil {
 			t.Fatal(err)
 		}

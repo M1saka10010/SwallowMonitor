@@ -61,7 +61,7 @@ export function HostDetailPage() {
   const timeline = useMemo(() => buildTimeline(points, windowRange.from, windowRange.to), [points, windowRange]);
   if (error) return <EmptyState title="主机详情加载失败" detail={error} action={<Link to="/" className="text-sm text-ink underline underline-offset-4">返回概览</Link>} />;
   if (!host) return <PageState message="正在加载主机详情…" />;
-  const facts = [["系统", `${host.os} ${host.platform} ${host.platformVersion}`], ["架构", host.kernelArch], ["CPU", host.modelName], ["核心数", host.cores], ["虚拟化", host.virtualizationRole || "-"], ["HostID", host.hostId || "-"]];
+  const facts = [["系统", `${host.os} ${host.platform} ${host.platformVersion}`], ["架构", host.kernelArch], ["CPU", host.modelName], ["核心数", host.cores], ["虚拟化", host.virtualizationRole || "-"], ["HostID", host.hostId || "-"], ["Agent 版本", host.agentVersion?.trim() || "未知"]];
   const charts = [{ title: "CPU", metric: "cpu" as const }, { title: `内存${host.latest?.memoryTotal ? ` · ${formatBytes(host.latest.memoryTotal)}` : ""}`, metric: "memory" as const }, { title: "网络", metric: "network" as const }, { title: "系统负载", metric: "load" as const }];
   return <section>
     <Link className="text-sm text-muted transition-colors hover:text-ink" to="/">← 返回概览</Link>

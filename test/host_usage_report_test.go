@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func TestHostStoreCRUDTokenLookupInfoTouchAndDelete(t *testing.T) {
+func TestHostStoreCRUDPublicKeyLookupInfoTouchAndDelete(t *testing.T) {
 	st, _ := newTestApp(t, nil)
 	if _, err := st.CreateTag("prod"); err != nil {
 		t.Fatalf("CreateTag(prod) error = %v", err)
@@ -22,26 +22,26 @@ func TestHostStoreCRUDTokenLookupInfoTouchAndDelete(t *testing.T) {
 		t.Fatalf("CreateTag(web) error = %v", err)
 	}
 
-	host, err := st.CreateHost(" Web-01 ", "token-host", []string{"prod", "missing", "web"})
+	host, err := st.CreateHost(" Web-01 ", reportTestPublicKey("token-host"), []string{"prod", "missing", "web"})
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
-	if host.PublicID == "" || host.Token != "token-host" {
+	if host.PublicID == "" || host.PublicKey != reportTestPublicKey("token-host") {
 		t.Fatalf("created host = %#v", host)
 	}
 	if strings.Join(host.Tags, ",") != "prod,web" {
 		t.Fatalf("created host tags = %#v, want prod/web", host.Tags)
 	}
 
-	publicID, err := st.PublicIDByToken("token-host")
+	publicID, err := st.PublicIDByPublicKey(reportTestPublicKey("token-host"))
 	if err != nil {
-		t.Fatalf("PublicIDByToken() error = %v", err)
+		t.Fatalf("PublicIDByPublicKey() error = %v", err)
 	}
 	if publicID != host.PublicID {
-		t.Fatalf("PublicIDByToken() = %q, want %q", publicID, host.PublicID)
+		t.Fatalf("PublicIDByPublicKey() = %q, want %q", publicID, host.PublicID)
 	}
-	if _, err := st.PublicIDByToken("missing-token"); err != store.ErrNotFound {
-		t.Fatalf("PublicIDByToken(missing) error = %v, want ErrNotFound", err)
+	if _, err := st.PublicIDByPublicKey(reportTestPublicKey("missing-token")); err != store.ErrNotFound {
+		t.Fatalf("PublicIDByPublicKey(missing) error = %v, want ErrNotFound", err)
 	}
 
 	if err := st.UpdateHost(host.PublicID, "Web-02", []string{"web"}); err != nil {
@@ -108,7 +108,7 @@ func TestHostAPICRUDVisibilityValidationAndAuth(t *testing.T) {
 		t.Fatalf("empty nickname status = %d, want %d", badRec.Code, http.StatusBadRequest)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/hosts", strings.NewReader(`{"nickname":"Web-01","token":"token-api","tags":["prod","missing"]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/hosts", strings.NewReader(`{"nickname":"Web-01","publicKey":"`+reportTestPublicKey("token-api")+`","tags":["prod","missing"]}`))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -118,7 +118,7 @@ func TestHostAPICRUDVisibilityValidationAndAuth(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created host: %v", err)
 	}
-	if created.Token != "token-api" || strings.Join(created.Tags, ",") != "prod" {
+	if created.PublicKey != reportTestPublicKey("token-api") || strings.Join(created.Tags, ",") != "prod" {
 		t.Fatalf("created host = %#v", created)
 	}
 
@@ -129,15 +129,15 @@ func TestHostAPICRUDVisibilityValidationAndAuth(t *testing.T) {
 		t.Fatalf("GET /api/hosts status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var hosts []struct {
-		PublicID string `json:"publicId"`
-		Token    string `json:"token"`
-		Nickname string `json:"nickname"`
-		Online   bool   `json:"online"`
+		PublicID  string `json:"publicId"`
+		PublicKey string `json:"publicKey"`
+		Nickname  string `json:"nickname"`
+		Online    bool   `json:"online"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&hosts); err != nil {
 		t.Fatalf("decode hosts: %v", err)
 	}
-	if len(hosts) != 1 || hosts[0].Token != "token-api" || hosts[0].Online {
+	if len(hosts) != 1 || hosts[0].PublicKey != reportTestPublicKey("token-api") || hosts[0].Online {
 		t.Fatalf("hosts = %#v", hosts)
 	}
 
@@ -155,14 +155,14 @@ func TestHostAPICRUDVisibilityValidationAndAuth(t *testing.T) {
 		t.Fatalf("GET /api/hosts/{id} status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		PublicID string `json:"publicId"`
-		Nickname string `json:"nickname"`
-		Token    string `json:"token"`
+		PublicID  string `json:"publicId"`
+		Nickname  string `json:"nickname"`
+		PublicKey string `json:"publicKey"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode host: %v", err)
 	}
-	if got.Nickname != "Web-02" || got.Token != "token-api" {
+	if got.Nickname != "Web-02" || got.PublicKey != reportTestPublicKey("token-api") {
 		t.Fatalf("host after patch = %#v", got)
 	}
 
@@ -199,9 +199,9 @@ func TestHostAPICRUDVisibilityValidationAndAuth(t *testing.T) {
 	}
 }
 
-func TestHostAPITokenHiddenForAnonymousWhenOAuthEnabled(t *testing.T) {
+func TestHostAPIPublicKeyHiddenForAnonymousWhenOAuthEnabled(t *testing.T) {
 	st, mux := newTestApp(t, &model.Config{GitHub: model.GitHubConfig{ClientID: "client"}})
-	host, err := st.CreateHost("Web-01", "secret-token", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("secret-token"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -212,8 +212,8 @@ func TestHostAPITokenHiddenForAnonymousWhenOAuthEnabled(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/hosts status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "secret-token") {
-		t.Fatalf("anonymous hosts response exposed token: %s", rec.Body.String())
+	if strings.Contains(rec.Body.String(), reportTestPublicKey("secret-token")) {
+		t.Fatalf("anonymous hosts response exposed public key: %s", rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/hosts/"+host.PublicID, nil)
@@ -222,14 +222,14 @@ func TestHostAPITokenHiddenForAnonymousWhenOAuthEnabled(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/hosts/{id} status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "secret-token") {
-		t.Fatalf("anonymous host response exposed token: %s", rec.Body.String())
+	if strings.Contains(rec.Body.String(), reportTestPublicKey("secret-token")) {
+		t.Fatalf("anonymous host response exposed public key: %s", rec.Body.String())
 	}
 }
 
 func TestUsageStoreLatestQuerySamplingAndPrune(t *testing.T) {
 	st, _ := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-01", "token-usage", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-usage"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -290,7 +290,7 @@ func TestUsageStoreLatestQuerySamplingAndPrune(t *testing.T) {
 	}
 
 	pruneStore, _ := newTestApp(t, nil)
-	oldHost, err := pruneStore.CreateHost("Old", "token-old", nil)
+	oldHost, err := pruneStore.CreateHost("Old", reportTestPublicKey("token-old"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost(old) error = %v", err)
 	}
@@ -315,7 +315,7 @@ func TestUsageStoreLatestQuerySamplingAndPrune(t *testing.T) {
 
 func TestPruneUsagesBatched(t *testing.T) {
 	st, _ := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-01", "token-prune-batch", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-prune-batch"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -347,7 +347,7 @@ func TestPruneUsagesBatched(t *testing.T) {
 
 func TestAggregateUsageValuesAndTiers(t *testing.T) {
 	st, _ := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-01", "token-agg", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-agg"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -398,7 +398,7 @@ func TestAggregateUsageValuesAndTiers(t *testing.T) {
 
 func TestPruneDownsampled(t *testing.T) {
 	st, _ := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-01", "token-prune-ds", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-prune-ds"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -434,7 +434,7 @@ func TestPruneDownsampled(t *testing.T) {
 
 func TestVacuumIfFragmented(t *testing.T) {
 	st, _ := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-01", "token-vacuum", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-vacuum"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -475,7 +475,7 @@ func TestVacuumIfFragmented(t *testing.T) {
 
 func TestUsageAPIQueryParametersAndRangeClamp(t *testing.T) {
 	st, mux := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-01", "token-usage-api", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-usage-api"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -509,7 +509,7 @@ func TestUsageAPIQueryParametersAndRangeClamp(t *testing.T) {
 
 func TestReportWebSocketAuthInfoUsageAndBadMessages(t *testing.T) {
 	st, mux := newTestApp(t, nil)
-	host, err := st.CreateHost("Web-01", "token-report", nil)
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-report"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -517,14 +517,14 @@ func TestReportWebSocketAuthInfoUsageAndBadMessages(t *testing.T) {
 	defer appSrv.Close()
 	wsURL := "ws" + strings.TrimPrefix(appSrv.URL, "http") + "/report"
 
-	if _, resp, err := websocket.DefaultDialer.Dial(wsURL, nil); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+	if _, resp, err := dialReportTest(wsURL, nil); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
 		status := 0
 		if resp != nil {
 			status = resp.StatusCode
 		}
 		t.Fatalf("dial without token err=%v status=%d, want unauthorized", err, status)
 	}
-	if _, resp, err := websocket.DefaultDialer.Dial(wsURL, http.Header{"Token": []string{"missing"}}); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+	if _, resp, err := dialReportTest(wsURL, http.Header{"Token": []string{"missing"}}); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
 		status := 0
 		if resp != nil {
 			status = resp.StatusCode
@@ -532,7 +532,7 @@ func TestReportWebSocketAuthInfoUsageAndBadMessages(t *testing.T) {
 		t.Fatalf("dial unknown token err=%v status=%d, want unauthorized", err, status)
 	}
 
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, http.Header{"Token": []string{host.Token}})
+	conn, _, err := dialReportTest(wsURL, http.Header{"X-Agent-Public-Key": []string{host.PublicKey}})
 	if err != nil {
 		t.Fatalf("dial report websocket: %v", err)
 	}

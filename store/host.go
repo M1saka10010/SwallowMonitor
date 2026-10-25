@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,11 +19,14 @@ import (
 
 // ErrNotFound is returned when a host does not exist.
 var ErrNotFound = errors.New("host not found")
+var ErrEnrollmentInvalid = errors.New("invalid enrollment")
+var ErrAlreadyBound = errors.New("host already bound")
 
 // Host represents a managed host row.
 type Host struct {
+	AgentVersion       string   `json:"agentVersion"`
 	PublicID           string   `json:"publicId"`
-	Token              string   `json:"token,omitempty"`
+	PublicKey          string   `json:"publicKey,omitempty"`
 	Nickname           string   `json:"nickname"`
 	Tags               []string `json:"tags"`
 	HostID             string   `json:"hostId"`
@@ -69,11 +75,25 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// CreateHost inserts a new host. If token is empty, one is generated.
-// Returns the created host including its token.
-func (s *Store) CreateHost(nickname, token string, tags []string) (*Host, error) {
-	if len(nickname) > 400 || len(token) > 128 {
+func validPublicKey(publicKey string) bool {
+	if len(publicKey) != base64.StdEncoding.EncodedLen(ed25519.PublicKeySize) {
+		return false
+	}
+	key, err := base64.StdEncoding.Strict().DecodeString(publicKey)
+	return err == nil && len(key) == ed25519.PublicKeySize && base64.StdEncoding.EncodeToString(key) == publicKey
+}
+
+// CreateHost creates a pending host when publicKey is empty, or binds a key.
+func (s *Store) CreateHost(nickname, publicKey string, tags []string) (*Host, error) {
+	return s.createHost(nickname, publicKey, tags, nil)
+}
+
+func (s *Store) createHost(nickname, publicKey string, tags []string, enrollment *Enrollment) (*Host, error) {
+	if len(nickname) > 400 {
 		return nil, fmt.Errorf("host fields too long")
+	}
+	if publicKey != "" && !validPublicKey(publicKey) {
+		return nil, fmt.Errorf("publicKey must be canonical base64 encoding of a 32-byte Ed25519 public key")
 	}
 	existingTags, err := s.existingTagNames(tags)
 	if err != nil {
@@ -83,24 +103,147 @@ func (s *Store) CreateHost(nickname, token string, tags []string) (*Host, error)
 	if err != nil {
 		return nil, err
 	}
-	if token == "" {
-		token, err = randomHex(16) // 32 hex chars
+	now := time.Now().Unix()
+	query := "INSERT INTO hosts (public_id, public_key, nickname, tags, created_at) VALUES (?, ?, ?, ?, ?)"
+	var storedKey any
+	if publicKey != "" {
+		storedKey = publicKey
+	}
+	args := []any{publicID, storedKey, nickname, encodeTags(nil), now}
+	if s.legacyTokenColumn {
+		// The obsolete NOT NULL column is never used as an identity.
+		placeholder, err := randomHex(32)
 		if err != nil {
 			return nil, err
 		}
+		query = "INSERT INTO hosts (public_id, public_key, nickname, tags, created_at, token) VALUES (?, ?, ?, ?, ?, ?)"
+		args = append(args, placeholder)
 	}
-	now := time.Now().Unix()
-	_, err = s.db.Exec(
-		`INSERT INTO hosts (public_id, token, nickname, tags, created_at) VALUES (?, ?, ?, ?, ?)`,
-		publicID, token, nickname, encodeTags(nil), now,
-	)
+	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
-	if err := s.replaceHostTags(publicID, existingTags); err != nil {
+	defer tx.Rollback()
+	_, err = tx.Exec(query, args...)
+	if err != nil {
 		return nil, err
 	}
-	return &Host{PublicID: publicID, Token: token, Nickname: nickname, Tags: existingTags, CreatedAt: now}, nil
+	for _, tag := range existingTags {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO host_tags(public_id, tag_id) SELECT ?, id FROM tags WHERE name = ?`, publicID, tag); err != nil {
+			return nil, err
+		}
+	}
+	if enrollment != nil {
+		sum := sha256.Sum256([]byte(enrollment.Token))
+		if _, err := tx.Exec(`INSERT INTO host_enrollments(public_id, token_hash, expires_at, consumed) VALUES(?,?,?,0)`, publicID, sum[:], enrollment.ExpiresAt); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &Host{PublicID: publicID, PublicKey: publicKey, Nickname: nickname, Tags: existingTags, CreatedAt: now}, nil
+}
+
+type Enrollment struct {
+	Host      *Host
+	Token     string
+	ExpiresAt int64
+}
+
+func (s *Store) CreateEnrollmentHost(nickname string, tags []string) (*Enrollment, error) {
+	token, err := randomHex(32)
+	if err != nil {
+		return nil, err
+	}
+	e := &Enrollment{Token: token, ExpiresAt: time.Now().Add(15 * time.Minute).Unix()}
+	h, err := s.createHost(nickname, "", tags, e)
+	if err != nil {
+		return nil, err
+	}
+	e.Host = h
+	return e, nil
+}
+
+func (s *Store) RefreshEnrollment(publicID string) (*Enrollment, error) {
+	token, err := randomHex(32)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256([]byte(token))
+	exp := time.Now().Add(15 * time.Minute).Unix()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var key sql.NullString
+	if err = tx.QueryRow(`SELECT public_key FROM hosts WHERE public_id = ?`, publicID).Scan(&key); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if key.Valid && key.String != "" {
+		return nil, ErrAlreadyBound
+	}
+	if _, err = tx.Exec(`DELETE FROM host_enrollments WHERE public_id = ?`, publicID); err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(`INSERT INTO host_enrollments(public_id,token_hash,expires_at,consumed) VALUES(?,?,?,0)`, publicID, sum[:], exp); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	h, err := s.GetHost(publicID)
+	if err != nil {
+		return nil, err
+	}
+	return &Enrollment{Host: h, Token: token, ExpiresAt: exp}, nil
+}
+
+func (s *Store) ConsumeEnrollment(token, publicKey string, now int64) (string, error) {
+	raw, err := hex.DecodeString(token)
+	if err != nil || len(raw) != 32 || hex.EncodeToString(raw) != token || !validPublicKey(publicKey) {
+		return "", ErrEnrollmentInvalid
+	}
+	sum := sha256.Sum256([]byte(token))
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	var publicID string
+	var exp int64
+	var consumed int
+	err = tx.QueryRow(`SELECT public_id,expires_at,consumed FROM host_enrollments WHERE token_hash = ?`, sum[:]).Scan(&publicID, &exp, &consumed)
+	if err != nil || consumed != 0 || exp <= now {
+		return "", ErrEnrollmentInvalid
+	}
+	var key sql.NullString
+	if err = tx.QueryRow(`SELECT public_key FROM hosts WHERE public_id=?`, publicID).Scan(&key); err != nil || (key.Valid && key.String != "") {
+		return "", ErrEnrollmentInvalid
+	}
+	res, err := tx.Exec(`UPDATE hosts SET public_key=? WHERE public_id=? AND (public_key IS NULL OR public_key='')`, publicKey, publicID)
+	if err != nil {
+		return "", err
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n != 1 {
+		return "", ErrEnrollmentInvalid
+	}
+	res, err = tx.Exec(`UPDATE host_enrollments SET consumed=1 WHERE token_hash=? AND consumed=0`, sum[:])
+	if err != nil {
+		return "", err
+	}
+	n, _ = res.RowsAffected()
+	if n != 1 {
+		return "", ErrEnrollmentInvalid
+	}
+	if err = tx.Commit(); err != nil {
+		return "", err
+	}
+	return publicID, nil
 }
 
 // UpdateHost updates a host's nickname and tags by public id.
@@ -136,7 +279,7 @@ func (s *Store) DeleteHost(publicID string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
-	for _, table := range []string{"usages", "usages_5m", "usages_1h", "host_tags"} {
+	for _, table := range []string{"usages", "usages_5m", "usages_1h", "host_tags", "host_enrollments"} {
 		if _, err := tx.Exec("DELETE FROM "+table+" WHERE public_id = ?", publicID); err != nil {
 			return err
 		}
@@ -144,26 +287,32 @@ func (s *Store) DeleteHost(publicID string) error {
 	return tx.Commit()
 }
 
-const hostCols = `public_id, token, nickname, COALESCE(tags,'[]'), COALESCE(host_id,''), COALESCE(hostname,''),
+const hostCols = `public_id, COALESCE(public_key,''), nickname, COALESCE(tags,'[]'), COALESCE(host_id,''), COALESCE(hostname,''),
 	COALESCE(os,''), COALESCE(platform,''), COALESCE(platform_version,''),
 	COALESCE(kernel_arch,''), COALESCE(model_name,''), COALESCE(cores,0),
 	COALESCE(virtualization_role,''), COALESCE(boot_time,0),
-	COALESCE(last_seen,0), COALESCE(created_at,0)`
+	COALESCE(last_seen,0), COALESCE(created_at,0), COALESCE(last_info_json,'')`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	h := &Host{}
 	var tagsRaw string
-	err := sc.Scan(&h.PublicID, &h.Token, &h.Nickname, &tagsRaw, &h.HostID, &h.Hostname, &h.OS,
+	err := sc.Scan(&h.PublicID, &h.PublicKey, &h.Nickname, &tagsRaw, &h.HostID, &h.Hostname, &h.OS,
 		&h.Platform, &h.PlatformVersion, &h.KernelArch, &h.ModelName, &h.Cores,
-		&h.VirtualizationRole, &h.BootTime, &h.LastSeen, &h.CreatedAt)
+		&h.VirtualizationRole, &h.BootTime, &h.LastSeen, &h.CreatedAt, &h.LastInfoJSON)
 	if err != nil {
 		return nil, err
 	}
 	h.Tags = decodeTags(tagsRaw)
+	var info struct {
+		AgentVersion string `json:"agentVersion"`
+	}
+	if json.Unmarshal([]byte(h.LastInfoJSON), &info) == nil {
+		h.AgentVersion = info.AgentVersion
+	}
 	return h, nil
 }
 
-// ListHosts returns all hosts. The token is included; callers must strip it for
+// ListHosts returns all hosts. The public key is included; callers must strip it for
 // unauthenticated responses.
 func (s *Store) ListHosts() ([]*Host, error) {
 	return s.ListHostsContext(context.Background(), 0)
@@ -256,7 +405,7 @@ func (s *Store) LatestUsageContext(ctx context.Context, publicID string) (*model
 	return u, err
 }
 
-// GetHost returns a single host by public id. The token is included; callers
+// GetHost returns a single host by public id. The public key is included; callers
 // must strip it for unauthenticated responses.
 func (s *Store) GetHost(publicID string) (*Host, error) {
 	return s.GetHostContext(context.Background(), publicID)
@@ -277,11 +426,13 @@ func (s *Store) GetHostContext(ctx context.Context, publicID string) (*Host, err
 	return h, nil
 }
 
-// PublicIDByToken resolves a public id from an agent token. Returns ErrNotFound
-// if the token is not registered.
-func (s *Store) PublicIDByToken(token string) (string, error) {
+// PublicIDByPublicKey resolves only approved, canonical public keys.
+func (s *Store) PublicIDByPublicKey(publicKey string) (string, error) {
+	if !validPublicKey(publicKey) {
+		return "", ErrNotFound
+	}
 	var publicID string
-	err := s.db.QueryRow(`SELECT public_id FROM hosts WHERE token = ?`, token).Scan(&publicID)
+	err := s.db.QueryRow(`SELECT public_id FROM hosts WHERE public_key = ?`, publicKey).Scan(&publicID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}

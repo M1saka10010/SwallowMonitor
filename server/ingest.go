@@ -19,26 +19,25 @@ const (
 )
 
 // handleReport handles agent WebSocket connections at /report.
-// Authentication is via the "Token" request header which must match a
-// registered host token.
+// A registered device must prove possession of its private key before it can
+// replace a connection or report data. Legacy bearer tokens are not accepted.
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
-	// Rate-limit by source IP before any DB access to prevent token
-	// brute-force and DB-flooding DoS.
+	// Rate-limit connection attempts before database access and authentication.
 	if !s.reportLimiter.Allow(s.clientIP(r)) {
 		w.Header().Set("Retry-After", "60")
 		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
 
-	token := r.Header.Get("Token")
-	if token == "" {
-		http.Error(w, "missing token", http.StatusUnauthorized)
+	publicKey := r.Header.Get("X-Agent-Public-Key")
+	if !validDevicePublicKey(publicKey) || r.Header.Get("Token") != "" {
+		http.Error(w, "device authentication required", http.StatusUnauthorized)
 		return
 	}
 
-	publicID, err := s.store.PublicIDByToken(token)
+	publicID, err := s.store.PublicIDByPublicKey(publicKey)
 	if errors.Is(err, store.ErrNotFound) {
-		s.debugf("report: rejected unknown token")
+		s.debugf("report: rejected unknown device")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -53,6 +52,10 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	if err := authenticateDevice(conn, publicKey); err != nil {
+		s.debugf("report: device authentication failed")
+		return
+	}
 	conn.SetReadLimit(maxReportMessageSize)
 	if err := conn.SetReadDeadline(time.Now().Add(reportReadTimeout)); err != nil {
 		return
@@ -86,9 +89,9 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Recheck under the same lock used for deletion: the upgrade may have
-	// overlapped revocation after the initial token lookup.
+	// overlapped revocation after the initial device lookup.
 	s.hub.lifecycle.Lock()
-	currentID, err := s.store.PublicIDByToken(token)
+	currentID, err := s.store.PublicIDByPublicKey(publicKey)
 	if err != nil || currentID != publicID {
 		s.hub.lifecycle.Unlock()
 		return
@@ -111,6 +114,15 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 			s.scheduleOfflineNotification(publicID)
 		}
 	}()
+	// Registration precedes acknowledgement so network writes never hold the
+	// lifecycle lock. Failed acknowledgements remove only this connection.
+	if err := conn.SetWriteDeadline(time.Now().Add(deviceAuthTimeout)); err != nil {
+		return
+	}
+	if err := conn.WriteJSON(map[string]string{"type": "auth_ok"}); err != nil {
+		return
+	}
+	_ = conn.SetWriteDeadline(time.Time{})
 	s.debugf("report: agent connected publicID=%s", publicID)
 
 	for {

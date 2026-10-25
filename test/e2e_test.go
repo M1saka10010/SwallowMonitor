@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/M1saka10010/SwallowMonitor/store"
-	"github.com/gorilla/websocket"
 )
 
 // e2eServer wraps a running swallow-monitor process.
@@ -140,7 +139,7 @@ func TestE2EHostCRUD(t *testing.T) {
 	s := startE2EServer(t)
 
 	// Create a host.
-	createBody := `{"nickname":"E2E-Host","token":"e2e-token"}`
+	createBody := `{"nickname":"E2E-Host","publicKey":"` + reportTestPublicKey("e2e-token") + `"}`
 	resp, err := http.Post(s.url("/api/hosts"), "application/json", strings.NewReader(createBody))
 	if err != nil {
 		t.Fatalf("POST /api/hosts: %v", err)
@@ -155,7 +154,7 @@ func TestE2EHostCRUD(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&host); err != nil {
 		t.Fatalf("decode host: %v", err)
 	}
-	if host.Nickname != "E2E-Host" || host.Token != "e2e-token" {
+	if host.Nickname != "E2E-Host" || host.PublicKey != reportTestPublicKey("e2e-token") {
 		t.Fatalf("host = %#v", host)
 	}
 
@@ -213,7 +212,7 @@ func TestE2EAgentWebSocket(t *testing.T) {
 	s := startE2EServer(t)
 
 	// Create a host first.
-	createBody := `{"nickname":"WS-Host","token":"ws-token"}`
+	createBody := `{"nickname":"WS-Host","publicKey":"` + reportTestPublicKey("ws-token") + `"}`
 	resp, err := http.Post(s.url("/api/hosts"), "application/json", strings.NewReader(createBody))
 	if err != nil {
 		t.Fatalf("POST /api/hosts: %v", err)
@@ -224,8 +223,8 @@ func TestE2EAgentWebSocket(t *testing.T) {
 
 	// Connect via WebSocket.
 	wsURL := "ws" + strings.TrimPrefix(s.url(""), "http") + "/report"
-	header := http.Header{"Token": []string{host.Token}}
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	header := http.Header{"X-Agent-Public-Key": []string{host.PublicKey}}
+	conn, _, err := dialReportTest(wsURL, header)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
@@ -235,14 +234,14 @@ func TestE2EAgentWebSocket(t *testing.T) {
 	sysInfo := map[string]any{
 		"type": "system_info",
 		"data": map[string]any{
-			"hostname":     "e2e-test",
-			"os":           "linux",
-			"platform":     "ubuntu",
-			"cores":        4,
-			"hostId":       "e2e-host-id",
-			"bootTime":     1000,
-			"modelName":    "Test Machine",
-			"kernelArch":   "x86_64",
+			"hostname":        "e2e-test",
+			"os":              "linux",
+			"platform":        "ubuntu",
+			"cores":           4,
+			"hostId":          "e2e-host-id",
+			"bootTime":        1000,
+			"modelName":       "Test Machine",
+			"kernelArch":      "x86_64",
 			"platformVersion": "22.04",
 		},
 	}
@@ -255,13 +254,13 @@ func TestE2EAgentWebSocket(t *testing.T) {
 	sysUsage := map[string]any{
 		"type": "system_usage",
 		"data": map[string]any{
-			"cpuUsage":     42.5,
-			"memoryTotal":  8589934592,
-			"memoryUsed":   4294967296,
-			"timestamp":    now,
-			"load1":        1.5,
-			"load5":        1.2,
-			"load15":       0.8,
+			"cpuUsage":    42.5,
+			"memoryTotal": 8589934592,
+			"memoryUsed":  4294967296,
+			"timestamp":   now,
+			"load1":       1.5,
+			"load5":       1.2,
+			"load15":      0.8,
 		},
 	}
 	if err := conn.WriteJSON(sysUsage); err != nil {

@@ -31,7 +31,7 @@ func TestTagStoreCRUDAndHostAssociation(t *testing.T) {
 		t.Fatalf("created tag ids = %d, %d", prod.ID, web.ID)
 	}
 
-	host, err := st.CreateHost("Web-01", "token-tags", []string{"prod", "web", "missing"})
+	host, err := st.CreateHost("Web-01", reportTestPublicKey("token-tags"), []string{"prod", "web", "missing"})
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -136,7 +136,7 @@ func TestHostAPIUsesExistingTagsOnly(t *testing.T) {
 		t.Fatalf("CreateTag() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/hosts", strings.NewReader(`{"nickname":"Web-01","token":"token-api-tags","tags":["prod","missing"]}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/hosts", strings.NewReader(`{"nickname":"Web-01","publicKey":"`+reportTestPublicKey("token-api-tags")+`","tags":["prod","missing"]}`))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -204,6 +204,13 @@ func TestOpenMigratesLegacyHostTagsWithoutDeadlock(t *testing.T) {
 			done <- errUnexpectedTags(host.Tags)
 			return
 		}
+  if host.PublicKey != "" { done <- fmt.Errorf("legacy identity gained public key: %q", host.PublicKey); return }
+  for _, key := range []string{"legacy-token", ""} {
+   if _, err := st.PublicIDByPublicKey(key); err != store.ErrNotFound { done <- fmt.Errorf("legacy identity lookup %q: %v", key, err); return }
+  }
+  fresh, err := st.CreateHost("new device", reportTestPublicKey("migrated-new"), nil)
+  if err != nil { done <- err; return }
+  if id, err := st.PublicIDByPublicKey(fresh.PublicKey); err != nil || id != fresh.PublicID { done <- fmt.Errorf("new migrated key lookup: %q %v", id, err); return }
 		done <- nil
 	}()
 

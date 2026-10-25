@@ -28,8 +28,9 @@ export interface Usage {
 }
 
 export interface Host {
+  agentVersion?: string;
   publicId: string;
-  token?: string;
+  publicKey?: string;
   nickname: string;
   tags: string[];
   hostId: string;
@@ -46,6 +47,11 @@ export interface Host {
   createdAt: number;
   online: boolean;
   latest?: Usage | null;
+}
+
+export interface HostEnrollment extends Host {
+  enrollmentToken: string;
+  enrollmentExpiresAt: number;
 }
 
 export interface Tag {

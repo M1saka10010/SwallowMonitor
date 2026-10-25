@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 // TestReportEvictsPreviousConnection verifies that when a second agent
@@ -17,7 +15,7 @@ import (
 // the second connection closes.
 func TestReportEvictsPreviousConnection(t *testing.T) {
 	st, mux := newTestApp(t, nil)
-	host, err := st.CreateHost("Evict-01", "token-evict", nil)
+	host, err := st.CreateHost("Evict-01", reportTestPublicKey("token-evict"), nil)
 	if err != nil {
 		t.Fatalf("CreateHost() error = %v", err)
 	}
@@ -104,10 +102,10 @@ func TestReportEvictsPreviousConnection(t *testing.T) {
 		t.Fatalf("host online status did not reach %v", want)
 	}
 
-	tokenHeader := http.Header{"Token": []string{host.Token}}
+	tokenHeader := http.Header{"X-Agent-Public-Key": []string{host.PublicKey}}
 
 	// --- Connect first agent: host transitions to online. ---
-	conn1, _, err := websocket.DefaultDialer.Dial(wsURL, tokenHeader)
+	conn1, _, err := dialReportTest(wsURL, tokenHeader)
 	if err != nil {
 		t.Fatalf("dial conn1: %v", err)
 	}
@@ -116,7 +114,7 @@ func TestReportEvictsPreviousConnection(t *testing.T) {
 	requireOnline(t, true)
 
 	// --- Connect second agent: evicts conn1, host stays online. ---
-	conn2, _, err := websocket.DefaultDialer.Dial(wsURL, tokenHeader)
+	conn2, _, err := dialReportTest(wsURL, tokenHeader)
 	if err != nil {
 		t.Fatalf("dial conn2: %v", err)
 	}

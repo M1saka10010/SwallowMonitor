@@ -1,4 +1,7 @@
 # HTTP/WS 监听地址
+# Agent 使用已批准的 Ed25519 公钥完成挑战签名认证，不再接受 Token。
+# 生产 Agent 通过 WSS 验证服务端；反向代理须转发 X-Agent-Public-Key。
+# Agent 的 privateKeyPath/reportUrl/devMode 属于 Agent 配置，见 AUTHENTICATION.md。
 listen: ":8080"
 # 对外访问地址，用于拼接 GitHub OAuth 回调
 publicUrl: https://monitor.example.com

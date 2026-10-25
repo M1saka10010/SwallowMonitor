@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,7 +87,11 @@ func runNew(path string) {
 	}
 	defer st.Close()
 
-	host, err := st.CreateHost("Web-01", "token-demo", nil)
+	key, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	host, err := st.CreateHost("Web-01", base64.StdEncoding.EncodeToString(key), nil)
 	if err != nil {
 		panic(err)
 	}
@@ -92,7 +99,7 @@ func runNew(path string) {
 	start := time.Now()
 	for i := 0; i < totalRows; i++ {
 		u := &model.SystemUsage{
-			Timestamp:   uint64(time.Now().Add(-10 * 24 * time.Hour).Unix() - int64(i)*10),
+			Timestamp:   uint64(time.Now().Add(-10*24*time.Hour).Unix() - int64(i)*10),
 			CPUUsage:    12.5,
 			MemoryTotal: 16000,
 			MemoryUsed:  uint64(i % 8000),

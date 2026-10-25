@@ -1,5 +1,5 @@
 import { jsonBody, requestJson } from "./client";
-import type { AuthState, Host, NotificationRule, SiteSettings, Tag, Usage } from "./types";
+import type { AuthState, Host, HostEnrollment, NotificationRule, SiteSettings, Tag, Usage } from "./types";
 
 export const api = {
   me: () => requestJson<AuthState>("/api/me"),
@@ -9,7 +9,8 @@ export const api = {
   host: (id: string, signal?: AbortSignal) => requestJson<Host>(`/api/hosts/${encodeURIComponent(id)}`, { signal }),
   usage: async (id: string, from: number, to: number, signal?: AbortSignal) =>
     (await requestJson<Usage[] | null>(`/api/hosts/${encodeURIComponent(id)}/usage?from=${from}&to=${to}`, { signal })) ?? [],
-  createHost: (body: { nickname: string; token: string; tags: string[] }) => requestJson<Host>("/api/hosts", { method: "POST", body: jsonBody(body) }),
+  createHost: (body: { nickname: string; tags: string[] }) => requestJson<HostEnrollment>("/api/hosts", { method: "POST", body: jsonBody(body) }),
+  refreshEnrollment: (id: string) => requestJson<HostEnrollment>(`/api/hosts/${encodeURIComponent(id)}/enrollment`, { method: "POST" }),
   updateHost: (id: string, body: { nickname: string; tags: string[] }) => requestJson<{ status: string }>(`/api/hosts/${encodeURIComponent(id)}`, { method: "PATCH", body: jsonBody(body) }),
   deleteHost: (id: string) => requestJson<{ status: string }>(`/api/hosts/${encodeURIComponent(id)}`, { method: "DELETE" }),
   tags: () => requestJson<Tag[]>("/api/tags"),
