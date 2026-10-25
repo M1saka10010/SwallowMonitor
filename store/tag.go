@@ -179,10 +179,6 @@ func (s *Store) existingTagNames(tags []string) ([]string, error) {
 	return out, nil
 }
 
-func (s *Store) loadTagsForHosts(hosts []*Host) error {
-	return s.loadTagsForHostsContext(context.Background(), hosts)
-}
-
 func (s *Store) loadTagsForHostContext(ctx context.Context, host *Host) error {
 	host.Tags = []string{}
 	rows, err := s.db.QueryContext(ctx, `SELECT t.name FROM host_tags ht JOIN tags t ON t.id = ht.tag_id

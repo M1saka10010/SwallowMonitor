@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { NavLink, Navigate, Outlet, useOutletContext } from "react-router-dom";
+import { NavLink, Navigate, Outlet } from "react-router-dom";
 import { api } from "../../api";
 import type { AgentReleases, Host, HostEnrollment, NotificationRule, Tag } from "../../api/types";
 import { Button, ConfirmDialog, EmptyState, PageState, StatusBadge, fieldClass } from "../../components/ui";
@@ -9,20 +9,18 @@ import { binaryAsset, compareVersions, releaseSupports, stableRelease, versionSt
 import { copyText } from "../../utils/clipboard";
 import { errorMessage, formatDateTime } from "../../utils/format";
 
-type AdminContext = { refresh: number; invalidate: () => void };
-const useAdmin = () => useOutletContext<AdminContext>();
 const panels = [["hosts", "主机管理"], ["tags", "标签管理"], ["settings", "网站设置"], ["notifications", "状态通知"]];
 const navLinkClass = ({ isActive }: { isActive: boolean }) => `block min-h-11 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm transition-colors lg:border-b-0 lg:border-l-2 ${isActive ? "border-ink font-medium text-ink" : "border-transparent text-muted hover:text-ink"}`;
 const zoneClass = "grid gap-4 rounded-[10px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_1px_0_var(--edge-light)]";
 
 export function AdminPage() {
-  const { auth } = useApp(); const [refresh, setRefresh] = useState(0);
+  const { auth } = useApp();
   if (!auth.loggedIn) return <Navigate to="/unauthorized" replace />;
   return <section>
     <div className="mb-6 border-b border-line pb-5"><p className="font-mono text-[11px] uppercase tracking-[0.16em] text-faint">Administration</p><h1 className="mt-2 font-serif text-[28px] font-semibold leading-tight tracking-tight">后台管理</h1><p className="mt-2 font-mono text-xs text-muted">Monitor 版本：{auth.monitorVersion?.trim() || "未知"}</p></div>
     <div className="grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
       <nav className="flex gap-4 overflow-x-auto border-b border-line lg:block lg:space-y-1 lg:border-b-0 lg:border-r lg:pr-5" aria-label="后台管理">{panels.map(([path, label]) => <NavLink key={path} to={`/admin/${path}`} className={navLinkClass}>{label}</NavLink>)}</nav>
-      <div className="min-w-0"><Outlet context={{ refresh, invalidate: () => setRefresh((value) => value + 1) }} /></div>
+      <div className="min-w-0"><Outlet /></div>
     </div>
   </section>;
 }
@@ -31,7 +29,7 @@ function FieldMessage({ value, success = false }: { value: string; success?: boo
 function CheckTags({ tags, value, onChange }: { tags: Tag[]; value: string[]; onChange: (value: string[]) => void }) { return <div className="flex flex-wrap gap-3">{tags.map((tag) => <label key={tag.id} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={value.includes(tag.name)} onChange={(event) => onChange(event.target.checked ? [...value, tag.name] : value.filter((item) => item !== tag.name))} />{tag.name}</label>)}</div>; }
 
 export function HostsPanel() {
-  const { refresh, invalidate } = useAdmin(); const [hosts, setHosts] = useState<Host[]>(); const [tags, setTags] = useState<Tag[]>([]); const [error, setError] = useState(""); const [copyMessage, setCopyMessage] = useState(""); const [nickname, setNickname] = useState(""); const [selected, setSelected] = useState<string[]>([]); const [created, setCreated] = useState<HostEnrollment>(); const [busy, setBusy] = useState(false); const [now, setNow] = useState(Date.now()); const [editing, setEditing] = useState<Host>(); const [deleting, setDeleting] = useState<Host>();
+  const [hosts, setHosts] = useState<Host[]>(); const [tags, setTags] = useState<Tag[]>([]); const [error, setError] = useState(""); const [copyMessage, setCopyMessage] = useState(""); const [nickname, setNickname] = useState(""); const [selected, setSelected] = useState<string[]>([]); const [created, setCreated] = useState<HostEnrollment>(); const [busy, setBusy] = useState(false); const [now, setNow] = useState(Date.now()); const [editing, setEditing] = useState<Host>(); const [deleting, setDeleting] = useState<Host>();
   const [agentRelease, setAgentRelease] = useState("");
   const releaseChosen = useRef(false);
   const [hostLoadError, setHostLoadError] = useState("");
@@ -64,13 +62,13 @@ export function HostsPanel() {
     try { const [nextHosts, nextTags] = await Promise.all([api.hosts(), api.tags()]); if (!hostLoadActive.current || request !== hostRequest.current) return; setHosts(nextHosts); setTags(nextTags); setHostLoadError(""); }
     catch (reason) { if (hostLoadActive.current && request === hostRequest.current) setHostLoadError(errorMessage(reason)); }
   }, []);
-  useEffect(() => { hostLoadActive.current = true; void load(); const timer = window.setInterval(() => void load(), 600000); return () => { hostLoadActive.current = false; ++hostRequest.current; window.clearInterval(timer); }; }, [load, refresh]);
+  useEffect(() => { hostLoadActive.current = true; void load(); const timer = window.setInterval(() => void load(), 600000); return () => { hostLoadActive.current = false; ++hostRequest.current; window.clearInterval(timer); }; }, [load]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => { if (created && hosts?.some((host) => host.publicId === created.publicId && host.publicKey)) setCreated(undefined); }, [hosts, created]);
   const regenerate = async (host: Host) => { setBusy(true); setError(""); setCreated(undefined); setCopyMessage(""); try { setCreated(await api.refreshEnrollment(host.publicId)); setNow(Date.now()); await load(); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); } };
-  const create = async (event: FormEvent) => { event.preventDefault(); setError(""); setBusy(true); setCreated(undefined); setCopyMessage(""); try { const host = await api.createHost({ nickname, tags: selected }); setNow(Date.now()); setCreated(host); setNickname(""); setSelected([]); await load(); invalidate(); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); } };
-  const save = async () => { if (!editing) return; try { await api.updateHost(editing.publicId, { nickname: editing.nickname, tags: editing.tags }); setEditing(undefined); await load(); invalidate(); } catch (reason) { setError(errorMessage(reason)); } };
-  const remove = async () => { if (!deleting) return; try { await api.deleteHost(deleting.publicId); if (created?.publicId === deleting.publicId) setCreated(undefined); setDeleting(undefined); await load(); invalidate(); } catch (reason) { setError(errorMessage(reason)); } };
+  const create = async (event: FormEvent) => { event.preventDefault(); setError(""); setBusy(true); setCreated(undefined); setCopyMessage(""); try { const host = await api.createHost({ nickname, tags: selected }); setNow(Date.now()); setCreated(host); setNickname(""); setSelected([]); await load(); } catch (reason) { setError(errorMessage(reason)); } finally { setBusy(false); } };
+  const save = async () => { if (!editing) return; try { await api.updateHost(editing.publicId, { nickname: editing.nickname, tags: editing.tags }); setEditing(undefined); await load(); } catch (reason) { setError(errorMessage(reason)); } };
+  const remove = async () => { if (!deleting) return; try { await api.deleteHost(deleting.publicId); if (created?.publicId === deleting.publicId) setCreated(undefined); setDeleting(undefined); await load(); } catch (reason) { setError(errorMessage(reason)); } };
   const loopback = location.hostname === "localhost" || location.hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(location.hostname);
   const reportUrl = location.protocol === "https:" ? `wss://${location.host}/report` : location.protocol === "http:" && loopback ? `ws://${location.host}/report` : undefined;
   const enrollmentHost = created && hosts?.find((host) => host.publicId === created.publicId);
@@ -120,11 +118,11 @@ export function HostsPanel() {
 }
 
 export function TagsPanel() {
-  const { refresh, invalidate } = useAdmin(); const [tags, setTags] = useState<Tag[]>(); const [hosts, setHosts] = useState<Host[]>([]); const [name, setName] = useState(""); const [editing, setEditing] = useState<Tag>(); const [deleting, setDeleting] = useState<Tag>(); const [message, setMessage] = useState("");
-  const load = useCallback(() => Promise.all([api.tags(), api.hosts()]).then(([nextTags, nextHosts]) => { setTags(nextTags); setHosts(nextHosts); }).catch((reason) => setMessage(errorMessage(reason))), []); useEffect(() => { void load(); }, [load, refresh]);
+  const [tags, setTags] = useState<Tag[]>(); const [hosts, setHosts] = useState<Host[]>([]); const [name, setName] = useState(""); const [editing, setEditing] = useState<Tag>(); const [deleting, setDeleting] = useState<Tag>(); const [message, setMessage] = useState("");
+  const load = useCallback(() => Promise.all([api.tags(), api.hosts()]).then(([nextTags, nextHosts]) => { setTags(nextTags); setHosts(nextHosts); }).catch((reason) => setMessage(errorMessage(reason))), []); useEffect(() => { void load(); }, [load]);
   const countOf = (tagName: string) => hosts.filter((host) => host.tags.includes(tagName)).length;
-  const submit = async (event: FormEvent) => { event.preventDefault(); try { if (editing) await api.updateTag(editing.id, name); else await api.createTag(name); setName(""); setEditing(undefined); setMessage(""); await load(); invalidate(); } catch (reason) { setMessage(errorMessage(reason)); } };
-  const remove = async () => { if (!deleting) return; try { await api.deleteTag(deleting.id); setDeleting(undefined); await load(); invalidate(); } catch (reason) { setMessage(errorMessage(reason)); } };
+  const submit = async (event: FormEvent) => { event.preventDefault(); try { if (editing) await api.updateTag(editing.id, name); else await api.createTag(name); setName(""); setEditing(undefined); setMessage(""); await load(); } catch (reason) { setMessage(errorMessage(reason)); } };
+  const remove = async () => { if (!deleting) return; try { await api.deleteTag(deleting.id); setDeleting(undefined); await load(); } catch (reason) { setMessage(errorMessage(reason)); } };
   if (!tags && message) return <PageState label="ERROR" tone="danger" message={`标签加载失败：${message}`} action={<Button onClick={() => { setMessage(""); void load(); }}>重新加载</Button>} />;
   if (!tags) return <PageState message="正在加载标签…" />;
   return <div>
@@ -148,8 +146,8 @@ export function SettingsPanel() {
 
 const emptyRule = (): Omit<NotificationRule, "id" | "createdAt"> => ({ tag: "", url: "", notifyOnline: true, notifyOffline: true, enabled: true });
 export function NotificationsPanel() {
-  const { refresh } = useAdmin(); const [rules, setRules] = useState<NotificationRule[]>(); const [tags, setTags] = useState<Tag[]>([]); const [draft, setDraft] = useState(emptyRule()); const [editing, setEditing] = useState<number>(); const [deleting, setDeleting] = useState<NotificationRule>(); const [message, setMessage] = useState("");
-  const load = useCallback(() => Promise.all([api.notifications(), api.tags()]).then(([nextRules, nextTags]) => { setRules(nextRules); setTags(nextTags); }).catch((reason) => setMessage(errorMessage(reason))), []); useEffect(() => { void load(); }, [load, refresh]);
+  const [rules, setRules] = useState<NotificationRule[]>(); const [tags, setTags] = useState<Tag[]>([]); const [draft, setDraft] = useState(emptyRule()); const [editing, setEditing] = useState<number>(); const [deleting, setDeleting] = useState<NotificationRule>(); const [message, setMessage] = useState("");
+  const load = useCallback(() => Promise.all([api.notifications(), api.tags()]).then(([nextRules, nextTags]) => { setRules(nextRules); setTags(nextTags); }).catch((reason) => setMessage(errorMessage(reason))), []); useEffect(() => { void load(); }, [load]);
   const submit = async (event: FormEvent) => { event.preventDefault(); if (!draft.url.includes("%text%")) { setMessage("通知 URL 必须包含 %text%"); return; } if (!draft.notifyOnline && !draft.notifyOffline) { setMessage("至少选择一种状态事件"); return; } try { if (editing) await api.updateNotification(editing, draft); else await api.createNotification(draft); setDraft(emptyRule()); setEditing(undefined); setMessage(""); await load(); } catch (reason) { setMessage(errorMessage(reason)); } };
   const remove = async () => { if (!deleting) return; try { await api.deleteNotification(deleting.id); setDeleting(undefined); await load(); } catch (reason) { setMessage(errorMessage(reason)); } };
   if (!rules && message) return <PageState label="ERROR" tone="danger" message={`通知规则加载失败：${message}`} action={<Button onClick={() => { setMessage(""); void load(); }}>重新加载</Button>} />;

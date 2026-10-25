@@ -1,20 +1,92 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { AppContextProvider } from "../../app/AppContext";
 import { api } from "../../api";
 import type { Host, HostEnrollment } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
 import { enrollmentCommand } from "../../utils/enrollment";
-import { HostsPanel } from "./AdminPage";
+import { AdminPage, HostsPanel, NotificationsPanel, TagsPanel } from "./AdminPage";
 
-vi.mock("react-router-dom", async (original) => ({ ...await original<typeof import("react-router-dom")>(), useOutletContext: () => ({ refresh: 0, invalidate: vi.fn() }) }));
 vi.mock("../../utils/clipboard", () => ({ copyText: vi.fn().mockResolvedValue(undefined) }));
-vi.mock("../../api", () => ({ api: { agentReleases: vi.fn(), hosts: vi.fn(), tags: vi.fn(), createHost: vi.fn(), refreshEnrollment: vi.fn(), deleteHost: vi.fn() } }));
+vi.mock("../../api", () => ({ api: { agentReleases: vi.fn(), hosts: vi.fn(), tags: vi.fn(), createHost: vi.fn(), updateHost: vi.fn(), refreshEnrollment: vi.fn(), deleteHost: vi.fn(), createTag: vi.fn(), updateTag: vi.fn(), deleteTag: vi.fn(), notifications: vi.fn() } }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals(); });
 const assets = ["bootstrap.sh", "checksums.txt", "install.sh", "migrate-token-to-key.sh", "upgrade.sh", "swallow-agent-linux-amd64", "swallow-agent-linux-arm64"];
 const releaseData = { releases: [{ version: "v9.8.7", assets }], latestVersion: "v9.8.7", checkedAt: 1700000000, stale: false };
 beforeEach(() => { vi.mocked(copyText).mockResolvedValue(undefined); vi.mocked(api.agentReleases).mockResolvedValue(releaseData); });
 
 const pending: Host = { publicId: "new", nickname: "Agent", tags: [], publicKey: "", online: false, hostId: "", hostname: "", os: "", platform: "", platformVersion: "", kernelArch: "", modelName: "", cores: 0, virtualizationRole: "", bootTime: 0, lastSeen: 0, createdAt: 0 };
+function renderAdmin(panel: "hosts" | "tags") {
+  return render(<AppContextProvider value={{ auth: { loggedIn: true, authEnabled: true, user: "admin" }, settings: { siteName: "Monitor", siteDescription: "" }, setSettings: vi.fn() }}>
+    <MemoryRouter initialEntries={[`/admin/${panel}`]}><Routes><Route path="/admin" element={<AdminPage />}>
+      <Route path="hosts" element={<HostsPanel />} /><Route path="tags" element={<TagsPanel />} /><Route path="notifications" element={<NotificationsPanel />} />
+    </Route></Routes></MemoryRouter>
+  </AppContextProvider>);
+}
+
+it.each([
+  ["hosts", "create"], ["hosts", "save"], ["hosts", "delete"],
+  ["tags", "create"], ["tags", "save"], ["tags", "delete"],
+] as const)("refreshes hosts and tags once after %s %s through AdminPage", async (panel, operation) => {
+  const tag = { id: 1, name: "prod", createdAt: 0 };
+  vi.mocked(api.hosts).mockResolvedValue([pending]); vi.mocked(api.tags).mockResolvedValue([tag]);
+  vi.mocked(api.createHost).mockResolvedValue({ ...pending, enrollmentToken: "token", enrollmentExpiresAt: Date.now() / 1000 + 900 });
+  vi.mocked(api.updateHost).mockResolvedValue({ status: "ok" }); vi.mocked(api.deleteHost).mockResolvedValue({ status: "ok" });
+  vi.mocked(api.createTag).mockResolvedValue(tag); vi.mocked(api.updateTag).mockResolvedValue(tag); vi.mocked(api.deleteTag).mockResolvedValue({ status: "ok" });
+  renderAdmin(panel);
+  await screen.findByLabelText(panel === "hosts" ? "昵称" : "标签名称");
+  expect(api.hosts).toHaveBeenCalledTimes(1); expect(api.tags).toHaveBeenCalledTimes(1);
+  if (operation === "delete") fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  if (operation === "save") fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  await act(async () => {
+    if (operation === "delete") {
+      fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+    } else if (operation === "save") {
+      fireEvent.click(screen.getByRole("button", { name: panel === "hosts" ? "保存" : "保存标签" }));
+    } else {
+      fireEvent.change(screen.getByLabelText(panel === "hosts" ? "昵称" : "标签名称"), { target: { value: "new item" } });
+      fireEvent.click(screen.getByRole("button", { name: panel === "hosts" ? "添加主机" : "添加标签" }));
+    }
+  });
+  const mutation = panel === "hosts" ? { create: api.createHost, save: api.updateHost, delete: api.deleteHost } : { create: api.createTag, save: api.updateTag, delete: api.deleteTag };
+  expect(mutation[operation]).toHaveBeenCalledTimes(1);
+  expect(api.hosts).toHaveBeenCalledTimes(2); expect(api.tags).toHaveBeenCalledTimes(2);
+});
+
+it.each(["success", "failure"])("keeps host creation busy until its refresh settles with %s", async (outcome) => {
+  vi.mocked(api.hosts).mockResolvedValue([]); vi.mocked(api.tags).mockResolvedValue([]);
+  vi.mocked(api.createHost).mockResolvedValue({ ...pending, enrollmentToken: "token", enrollmentExpiresAt: Date.now() / 1000 + 900 });
+  renderAdmin("hosts");
+  fireEvent.change(await screen.findByLabelText("昵称"), { target: { value: "Agent" } });
+  const refresh = deferred<Host[]>(); vi.mocked(api.hosts).mockReturnValueOnce(refresh.promise);
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "添加主机" })); });
+  expect(screen.getByRole("button", { name: "添加主机" })).toBeDisabled();
+  await act(async () => { if (outcome === "success") refresh.resolve([pending]); else refresh.reject(new Error("refresh failed")); });
+  expect(screen.getByRole("button", { name: "添加主机" })).toBeEnabled();
+  if (outcome === "failure") expect(screen.getByText("refresh failed")).toBeInTheDocument();
+  else expect(screen.getByText("Agent")).toBeInTheDocument();
+  expect(api.hosts).toHaveBeenCalledTimes(2); expect(api.tags).toHaveBeenCalledTimes(2);
+});
+
+it("loads fresh hosts, tags and notification options when switching AdminPage panels", async () => {
+  vi.mocked(api.hosts).mockResolvedValue([pending]); vi.mocked(api.tags).mockResolvedValue([]); vi.mocked(api.notifications).mockResolvedValue([]);
+  renderAdmin("hosts"); await screen.findByText("Agent");
+  const tag = { id: 1, name: "fresh-tag", createdAt: 0 };
+  vi.mocked(api.tags).mockResolvedValue([tag]); vi.mocked(api.hosts).mockResolvedValue([{ ...pending, nickname: "Fresh host", tags: [tag.name] }]);
+  fireEvent.click(screen.getByRole("link", { name: "标签管理" }));
+  await screen.findByText("fresh-tag"); expect(screen.getByText(/1 台主机/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("link", { name: "主机管理" }));
+  await screen.findByText("Fresh host"); expect(screen.getByLabelText("fresh-tag")).toBeInTheDocument();
+  expect(api.hosts).toHaveBeenCalledTimes(3); expect(api.tags).toHaveBeenCalledTimes(3);
+  fireEvent.click(screen.getByRole("link", { name: "状态通知" }));
+  await screen.findByRole("option", { name: "fresh-tag" });
+  vi.mocked(api.tags).mockResolvedValue([{ ...tag, name: "renamed-tag" }]);
+  fireEvent.click(screen.getByRole("link", { name: "标签管理" })); await screen.findByText("renamed-tag");
+  fireEvent.click(screen.getByRole("link", { name: "状态通知" }));
+  await screen.findByRole("option", { name: "renamed-tag" });
+  expect(screen.queryByRole("option", { name: "fresh-tag" })).not.toBeInTheDocument();
+  expect(api.notifications).toHaveBeenCalledTimes(2); expect(api.hosts).toHaveBeenCalledTimes(4); expect(api.tags).toHaveBeenCalledTimes(6);
+});
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;

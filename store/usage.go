@@ -43,15 +43,7 @@ func (s *Store) InsertUsage(publicID string, u *model.SystemUsage) error {
 
 // LatestUsage returns the most recent usage sample for a host, or nil if none.
 func (s *Store) LatestUsage(publicID string) (*model.SystemUsage, error) {
-	row := s.db.QueryRow(`SELECT `+usageCols+` FROM usages WHERE public_id = ? ORDER BY ts DESC LIMIT 1`, publicID)
-	u, err := scanUsage(row)
-	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return u, nil
+	return s.LatestUsageContext(context.Background(), publicID)
 }
 
 // QueryUsage returns usage samples for a host within [from, to] ordered by ts.
