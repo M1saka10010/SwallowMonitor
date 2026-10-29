@@ -18,8 +18,8 @@ export function isGithubProxy(value: string) {
   try { const url = new URL(value); return !!url.hostname && !url.username && !url.password; } catch { return false; }
 }
 
-export function enrollmentCommand(token: string, reportUrl: string, release: string, migrate = false, proxy = "") {
-  return `printf %s ${shellQuote(token)} | ${bootstrapCommand(release, `--mode ${migrate ? "migrate-token-to-key" : "install"} --report-url ${shellQuote(reportUrl)} --enrollment-token-stdin${reportUrl.startsWith("ws:") ? " --dev-mode" : ""}`, proxy)}`;
+export function enrollmentCommand(token: string, reportUrl: string, release: string, proxy = "") {
+  return `printf %s ${shellQuote(token)} | ${bootstrapCommand(release, `--mode install --report-url ${shellQuote(reportUrl)} --enrollment-token-stdin${reportUrl.startsWith("ws:") ? " --dev-mode" : ""}`, proxy)}`;
 }
 
 export function upgradeCommand(release: string, proxy = "") {

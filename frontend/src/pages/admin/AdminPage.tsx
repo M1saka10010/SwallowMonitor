@@ -76,8 +76,7 @@ export function HostsPanel() {
   const enrollmentBinary = enrollmentHost && binaryAsset(enrollmentHost);
   const enrollmentPlatformSupported = !enrollmentPlatformKnown || !!enrollmentBinary;
   const expired = !!created && now >= created.enrollmentExpiresAt * 1000;
-  const command = created && !expired && reportUrl && proxyValid && enrollmentPlatformSupported && releaseSupports(target, "install", enrollmentBinary) ? enrollmentCommand(created.enrollmentToken, reportUrl, agentRelease, false, activeProxy) : undefined;
-  const migrationCommand = created && !expired && reportUrl && proxyValid && enrollmentPlatformSupported && releaseSupports(target, "migrate-token-to-key", enrollmentBinary) ? enrollmentCommand(created.enrollmentToken, reportUrl, agentRelease, true, activeProxy) : undefined;
+  const command = created && !expired && reportUrl && proxyValid && enrollmentPlatformSupported && releaseSupports(target, "install", enrollmentBinary) ? enrollmentCommand(created.enrollmentToken, reportUrl, agentRelease, activeProxy) : undefined;
   if (!hosts && hostLoadError) return <PageState label="ERROR" tone="danger" message={`主机管理加载失败：${hostLoadError}`} action={<Button onClick={() => { setError(""); void load(); }}>重新加载</Button>} />;
   if (!hosts) return <PageState message="正在加载主机管理…" />;
   return <div>
@@ -101,13 +100,9 @@ export function HostsPanel() {
       <p className="mt-2 text-sm text-muted">有效期 15 分钟，过期时间：{formatDateTime(created.enrollmentExpiresAt)}。刷新页面无法找回明文；重新生成会立即使旧凭据失效。</p>
       <p className="mt-2 text-sm text-danger">请保密：持有凭据者可抢先绑定主机，无额外审批。不要分享命令、截图或日志；命令可能留在终端历史和剪贴板中。</p>
       <p className="mt-2 text-sm text-muted">从发布列表选择目标版本，默认选择最新可安装正式版。仅支持 Linux x86_64 / aarch64；其他系统或架构请手动安装。命令自动通过 HTTPS 下载该固定版本的 bootstrap 和安装资源，无需手动下载二进制。需要 bash、curl 及 root 权限（非 root 使用 sudo）。</p>
-      <p className="mt-2 text-sm text-muted">待注册只表示尚未绑定公钥，不代表机器是新装还是旧版。未安装请选择“新安装”；已有 v0.0.2 Token 标准安装请选择“迁移旧 Token Agent（v0.0.2）”。请在原主机记录上重新生成凭据以保留历史，不要删除重建。两条命令共用同一凭据，只执行适合的一条；成功绑定后，另一条仅能使用同一私钥恢复，不能再次注册新钥。</p>
-      {!enrollmentPlatformSupported && <p className="mt-2 text-sm text-danger">此主机的 OS / 架构不受支持或信息不完整，请手动安装或迁移。</p>}
-      {target && !releaseSupports(target, "migrate-token-to-key", enrollmentBinary) && <p className="mt-2 text-sm text-muted">目标版本缺少迁移所需资产，不能生成迁移命令。</p>}
-      {expired ? <p role="status" className="mt-3 text-sm text-danger">注册凭据已过期，请在待注册主机列表重新生成凭据。</p> : [["新安装", command], ["迁移旧 Token Agent（v0.0.2）", migrationCommand]].filter((item): item is [string, string] => !!item[1]).map(([label, value]) => <div key={label} className="mt-3 grid gap-2"><span className="text-sm font-medium">{label}</span><code className="break-all rounded-md bg-surface-muted p-2 font-mono text-xs">{value}</code><Button size="sm" onClick={() => { if (Date.now() >= created.enrollmentExpiresAt * 1000) { setNow(Date.now()); return; } void copyText(value).then(() => setCopyMessage(`${label}已复制`)).catch((reason) => setError(errorMessage(reason))); }}>复制{label}</Button></div>)}
-      {migrationCommand && <details className="mt-3 text-sm text-muted"><summary className="cursor-pointer text-ink">迁移限制与回滚说明</summary>
-<p className="mt-4 text-sm text-muted">此独立脚本只处理 v0.0.2 Token 到公钥的大 breaking 迁移，不支持常规版本更新，已公钥安装不能借此升级。正常成功后重跑仅确认迁移完成，不更换版本。迁移保留采集配置和私钥，执行前仍须备份以便本地回滚。脚本仅支持标准安装，非标准服务安装会被拒绝，不保证保留未知服务定制。失败可恢复本地备份，但服务端已完成的公钥绑定不能回滚；请保留新生成的私钥以便重试。旧 Token 已不被新版 Monitor 接受。</p>
-      </details>}
+      <p className="mt-2 text-sm text-muted">待注册只表示尚未绑定公钥。请在原主机记录上重新生成凭据以保留历史，不要删除重建；成功绑定后凭据即失效，仅能使用同一私钥恢复，不能再次注册新钥。</p>
+      {!enrollmentPlatformSupported && <p className="mt-2 text-sm text-danger">此主机的 OS / 架构不受支持或信息不完整，请手动安装。</p>}
+      {expired ? <p role="status" className="mt-3 text-sm text-danger">注册凭据已过期，请在待注册主机列表重新生成凭据。</p> : [["新安装", command]].filter((item): item is [string, string] => !!item[1]).map(([label, value]) => <div key={label} className="mt-3 grid gap-2"><span className="text-sm font-medium">{label}</span><code className="break-all rounded-md bg-surface-muted p-2 font-mono text-xs">{value}</code><Button size="sm" onClick={() => { if (Date.now() >= created.enrollmentExpiresAt * 1000) { setNow(Date.now()); return; } void copyText(value).then(() => setCopyMessage(`${label}已复制`)).catch((reason) => setError(errorMessage(reason))); }}>复制{label}</Button></div>)}
       <p className="mt-3 text-sm text-muted">生产环境必须配置实际 WSS 地址并验证服务端证书；仅 loopback 本机开发可使用 WS，且 Agent 必须显式开启 devMode: true。</p>
       {!reportUrl && <p className="mt-2 text-sm text-danger">当前页面不是 HTTPS 或 loopback HTTP，无法生成安全的 Report URL。请使用部署的实际 WSS 地址。</p>}
       <FieldMessage value={copyMessage} success />

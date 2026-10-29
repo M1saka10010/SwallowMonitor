@@ -1,4 +1,4 @@
-> 迁移说明：本文包含 Token 版本的历史测试名称与覆盖描述，不代表当前认证行为。当前 Agent 默认使用短期一次性凭据自动绑定，随后使用 Ed25519 公钥挑战认证，协议与迁移限制见 [AUTHENTICATION.md](AUTHENTICATION.md)。测试应覆盖规范公钥校验、旧库历史保留但不自动绑定、挑战签名及 auth_ok 前不上线；以当前测试源码和实际运行结果为准。
+> 迁移说明：本文包含 Token 版本的历史测试名称与覆盖描述，不代表当前认证行为。当前 Agent 默认使用短期一次性凭据自动绑定，随后使用 Ed25519 公钥挑战认证，协议与升级方法见 [AUTHENTICATION.md](AUTHENTICATION.md)。测试应覆盖规范公钥校验、旧库历史保留但不自动绑定、挑战签名及 auth_ok 前不上线；以当前测试源码和实际运行结果为准。
 
 # SwallowMonitor 自动化测试文档
 
@@ -9,10 +9,10 @@
 `AdminPage.test.tsx` 覆盖仅昵称/标签创建、一次性凭据展示、轮换移除旧命令、期限到达隐藏复制入口、页面重挂载不恢复明文、已绑定不允许刷新和删除历史警告，
 以及 HTTPS、loopback HTTP 和远程 HTTP 的连接信息。远程 HTTP 不生成 WS 地址；
 界面提示生产使用 WSS，loopback WS 还需 Agent 显式开启 `devMode`。
-迁移交互还覆盖：待注册同时展示共用凭据的新安装/迁移旧 Token Agent（v0.0.2）命令、凭据轮换同步替换两条命令、
-两种复制入口到期隐藏且点击时再次检查期限、已绑定不提供常规升级或刷新凭据入口。
-迁移命令复制覆盖 Token shell quoting；真实 bash 的 curl/sudo 替身验证固定 release URL、HTTPS-only 下载、下载 stdin 隔离、成功后才执行、下载失败不执行、成功/失败清理、root 与非 root 分支、凭据只走 stdin 和 URL 字面参数。测试不联网、不执行真实安装或迁移。
-新增严格 vSemver（含预发布/构建元数据）与注入拒绝测试，以及空默认输入、非法/清空版本移除两条命令与复制入口。测试中的 v9.8.7 只是合成 fixture，不表示已发布。原 expiry/secret/rotation 测试保留。Agent bootstrap 内部资源校验、迁移备份回滚由 Agent 测试负责。
+注册命令交互还覆盖：待注册展示新安装命令、凭据轮换同步替换命令、
+复制入口到期隐藏且点击时再次检查期限、已绑定不提供常规升级或刷新凭据入口。
+命令复制覆盖 shell quoting；真实 bash 的 curl/sudo 替身验证固定 release URL、HTTPS-only 下载、下载 stdin 隔离、成功后才执行、下载失败不执行、成功/失败清理、root 与非 root 分支、凭据只走 stdin 和 URL 字面参数。测试不联网、不执行真实安装。
+新增严格 vSemver（含预发布/构建元数据）与注入拒绝测试，以及空默认输入、非法/清空版本移除命令与复制入口。测试中的 v9.8.7 只是合成 fixture，不表示已发布。原 expiry/secret/rotation 测试保留。Agent bootstrap 内部资源校验、升级回滚由 Agent 测试负责。
 
 后端注册测试应验证 15 分钟期限、SHA-256 摘要存储、单次原子消费、刷新作废旧凭据、已绑定不可换钥，以及响应丢失后使用原钥正常握手恢复。旧手工 API 测试保留但不代表默认 UI。
 

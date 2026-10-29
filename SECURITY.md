@@ -61,25 +61,20 @@ Possession permits first-claim takeover: this is an explicitly accepted risk, no
 proof of device identity. Keep the command secret, including shell history, terminal
 logs, screenshots and clipboard contents. Passing it via stdin does not erase history.
 
-Choose an explicitly verified published Agent release in the panel; no target version is assumed or prefilled. Strict vSemver validation blocks empty/invalid input and never resolves latest. The command downloads bootstrap.sh from that fixed GitHub release over HTTPS (redirects also HTTPS), into a root-created private temporary file, then executes only after download success and cleans up on exit. Non-root users use sudo. Download stdin is /dev/null; the credential reaches bootstrap only via stdin, never arguments or curl | bash. Bootstrap downloads and checksums the matching release assets; no manual binary download is needed. HTTPS and checksums from the same release do not provide an independent publisher signature: trust the repository/release publisher and protect tags/assets. See AUTHENTICATION.md for installation and migration. A lost enrollment response must first be recovered using the existing
+Choose an explicitly verified published Agent release in the panel; no target version is assumed or prefilled. Strict vSemver validation blocks empty/invalid input and never resolves latest. The command downloads bootstrap.sh from that fixed GitHub release over HTTPS (redirects also HTTPS), into a root-created private temporary file, then executes only after download success and cleans up on exit. Non-root users use sudo. Download stdin is /dev/null; the credential reaches bootstrap only via stdin, never arguments or curl | bash. Bootstrap downloads and checksums the matching release assets; no manual binary download is needed. HTTPS and checksums from the same release do not provide an independent publisher signature: trust the repository/release publisher and protect tags/assets. See AUTHENTICATION.md for installation and upgrades. A lost enrollment response must first be recovered using the existing
 private key and normal challenge handshake, not by replacing the key. Unbound legacy
 hosts can receive fresh enrollment credentials without losing history; old tokens
 remain invalid. Deleting/recreating any host deletes history, so back up first.
 
 Public keys are not secrets. Private keys must remain protected on each Agent.
-The standalone migrate-token-to-key.sh handles only the breaking migration from
-released v0.0.2 Token installations to public-key authentication, not routine version
-updates. Pending hosts offer new-install (install.sh) and legacy-migration commands
-sharing one enrollment credential; choose based on the actual installation. Refresh
-credentials on the same old host record to retain history. No bound-host upgrade
-entry is provided. Already public-key installations cannot use the migration script
-as a general updater; rerunning a successfully completed migration only confirms
-completion and does not change versions. Preserve collection configuration and
-private keys, with local backups and failure rollback. Local failure recovery cannot undo a completed server-side binding;
-retain any newly generated private key for retry. Old Token authentication remains
-invalid even after local rollback. Nonstandard installations are rejected; unknown
-service customizations are not promised to survive. These instructions do not claim that a target release has already been published or that deployment was executed.
-A copied private key can still impersonate that device: a newly authenticated
+The legacy Token-to-key migration channel (standalone migrate-token-to-key.sh, its
+bootstrap mode and the panel migration command) was removed with Agent v0.1.2 to
+keep the Monitor lean. Pending hosts offer only the new-install (install.sh)
+command. Refresh credentials on the same old host record to retain history. Bound
+hosts use the regular upgrade entry, not any migration path. Hosts still on
+released v0.0.2 Token installations must be migrated manually using the Agent
+v0.1.1 transition tag (git checkout v0.1.1) following that version's
+documentation; old Token authentication remains invalid. A copied private key can still impersonate that device: a newly authenticated
 connection for the same key replaces the old one. Automatic enrollment is not hardware attestation
 or an in-place key rotation mechanism.
 

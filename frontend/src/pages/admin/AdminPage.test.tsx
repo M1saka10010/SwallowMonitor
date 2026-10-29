@@ -11,7 +11,7 @@ import { AdminPage, HostsPanel, NotificationsPanel, TagsPanel } from "./AdminPag
 vi.mock("../../utils/clipboard", () => ({ copyText: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../api", () => ({ api: { agentReleases: vi.fn(), hosts: vi.fn(), tags: vi.fn(), createHost: vi.fn(), updateHost: vi.fn(), refreshEnrollment: vi.fn(), deleteHost: vi.fn(), createTag: vi.fn(), updateTag: vi.fn(), deleteTag: vi.fn(), notifications: vi.fn() } }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals(); });
-const assets = ["bootstrap.sh", "checksums.txt", "install.sh", "migrate-token-to-key.sh", "upgrade.sh", "swallow-agent-linux-amd64", "swallow-agent-linux-arm64"];
+const assets = ["bootstrap.sh", "checksums.txt", "install.sh", "upgrade.sh", "swallow-agent-linux-amd64", "swallow-agent-linux-arm64"];
 const releaseData = { releases: [{ version: "v9.8.7", assets }], latestVersion: "v9.8.7", checkedAt: 1700000000, stale: false };
 beforeEach(() => { vi.mocked(copyText).mockResolvedValue(undefined); vi.mocked(api.agentReleases).mockResolvedValue(releaseData); });
 
@@ -170,8 +170,7 @@ it("creates and rotates credentials without keys, expires and forgets plaintext 
   fireEvent.change(await screen.findByLabelText("昵称"), { target: { value: "Agent" } });
   fireEvent.click(screen.getByRole("button", { name: "添加主机" }));
   fireEvent.change(await screen.findByLabelText("目标 Agent release"), { target: { value: "v9.8.7" } });
-  expect(await screen.findAllByText(/^printf %s/)).toHaveLength(2);
-  expect(screen.getByText("迁移限制与回滚说明").closest("details")).not.toHaveAttribute("open");
+  expect(await screen.findAllByText(/^printf %s/)).toHaveLength(1);
   for (const command of screen.getAllByText(/^printf %s/)) expect(command).toHaveTextContent("a".repeat(64));
   expect(api.createHost).toHaveBeenCalledWith({ nickname: "Agent", tags: [] });
   expect(screen.queryByLabelText(/公钥/)).not.toBeInTheDocument();
@@ -181,9 +180,7 @@ it("creates and rotates credentials without keys, expires and forgets plaintext 
   for (const command of screen.getAllByText(/^printf %s/)) expect(command).not.toHaveTextContent("a".repeat(64));
   const clock = vi.spyOn(Date, "now").mockReturnValue((expires + 1) * 1000);
   await screen.findByText(/注册凭据已过期/, {}, { timeout: 2500 });
-  expect(screen.queryByText("迁移限制与回滚说明")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "复制新安装" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "复制迁移旧 Token Agent（v0.0.2）" })).not.toBeInTheDocument();
   clock.mockRestore(); view.unmount(); render(<HostsPanel />);
   await screen.findByText(/待注册：/);
   expect(screen.queryByText(/一次性注册凭据仅本次显示/)).not.toBeInTheDocument();
@@ -195,9 +192,8 @@ it("offers no enrollment or routine update commands for bound hosts", async () =
   vi.mocked(api.tags).mockResolvedValue([]);
   render(<HostsPanel />);
   await screen.findByText("Agent");
-  expect(screen.queryByText(/此独立脚本/)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "重新生成凭据" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /升级|迁移/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /升级/ })).not.toBeInTheDocument();
   expect(screen.queryByText(/^sudo |^printf %s/)).not.toBeInTheDocument();
 });
 it("clears stale plaintext even when renewal fails", async () => {
@@ -235,7 +231,7 @@ it.each([
   }
 });
 
-it("copies safely quoted pending migration and blocks copy at expiry even before timer rerender", async () => {
+it("copies safely quoted pending install command and blocks copy at expiry even before timer rerender", async () => {
   vi.stubGlobal("location", new URL("https://monitor.example.com"));
   vi.mocked(api.hosts).mockResolvedValue([pending]); vi.mocked(api.tags).mockResolvedValue([]);
   const token = "a'b $(printf bad)";
@@ -244,9 +240,9 @@ it("copies safely quoted pending migration and blocks copy at expiry even before
   render(<HostsPanel />);
   fireEvent.click(await screen.findByRole("button", { name: "重新生成凭据" }));
   fireEvent.change(await screen.findByLabelText("目标 Agent release"), { target: { value: "v9.8.7" } });
-  const button = await screen.findByRole("button", { name: "复制迁移旧 Token Agent（v0.0.2）" });
+  const button = await screen.findByRole("button", { name: "复制新安装" });
   fireEvent.click(button);
-  expect(copyText).toHaveBeenCalledWith(enrollmentCommand(token, "wss://monitor.example.com/report", "v9.8.7", true));
+  expect(copyText).toHaveBeenCalledWith(enrollmentCommand(token, "wss://monitor.example.com/report", "v9.8.7"));
   vi.mocked(copyText).mockClear();
   const clock = vi.spyOn(Date, "now").mockReturnValue(expires * 1000);
   fireEvent.click(button);
@@ -265,9 +261,8 @@ it("defaults to the newest installable release and only accepts listed versions"
   expect(input).toHaveValue("v9.8.7");
   for (const value of ["", "latest", "v01.2.3", "v1.2.3;id", "v9.8.7", ""]) {
     fireEvent.change(input, { target: { value } });
-    expect(screen.queryAllByText(/^printf %s/)).toHaveLength(value === "v9.8.7" ? 2 : 0);
-    expect(screen.queryAllByText("迁移限制与回滚说明")).toHaveLength(value === "v9.8.7" ? 1 : 0);
-    expect(screen.queryAllByRole("button", { name: /^复制/ })).toHaveLength(value === "v9.8.7" ? 2 : 0);
+    expect(screen.queryAllByText(/^printf %s/)).toHaveLength(value === "v9.8.7" ? 1 : 0);
+    expect(screen.queryAllByRole("button", { name: /^复制/ })).toHaveLength(value === "v9.8.7" ? 1 : 0);
   }
 });
 
@@ -303,15 +298,14 @@ it("reports failures, retries, and never claims stale data is latest", async () 
   await screen.findByText(/发布列表已过期/); expect(screen.queryByText(/已是最新正式版/)).not.toBeInTheDocument();
 });
 
-it("independently gates installation and migration, and disables proxy for older releases", async () => {
+it("gates installation by release assets and disables proxy for older releases", async () => {
   vi.stubGlobal("location", new URL("https://monitor.example.com"));
   vi.mocked(api.hosts).mockResolvedValue([pending]); vi.mocked(api.tags).mockResolvedValue([]);
-  vi.mocked(api.agentReleases).mockResolvedValue({ ...releaseData, releases: [{ version: "v10.0.0", assets: [] }, { version: "v9.8.7", assets: assets.filter((asset) => !["upgrade.sh", "migrate-token-to-key.sh"].includes(asset)) }] });
+  vi.mocked(api.agentReleases).mockResolvedValue({ ...releaseData, releases: [{ version: "v10.0.0", assets: [] }, { version: "v9.8.7", assets: assets.filter((asset) => asset !== "upgrade.sh") }] });
   vi.mocked(api.refreshEnrollment).mockResolvedValue({ ...pending, enrollmentToken: "token", enrollmentExpiresAt: Date.now() / 1000 + 900 });
   render(<HostsPanel />); fireEvent.click(await screen.findByRole("button", { name: "重新生成凭据" }));
   expect(await screen.findByRole("button", { name: "复制新安装" })).toBeInTheDocument();
   expect(screen.getByLabelText("目标 Agent release")).toHaveValue("v9.8.7");
-  expect(screen.queryByRole("button", { name: "复制迁移旧 Token Agent（v0.0.2）" })).not.toBeInTheDocument();
   expect(screen.getByLabelText("GitHub HTTPS 代理前缀（可选）")).toBeDisabled();
   expect(screen.getByText(/^printf %s/)).not.toHaveTextContent("--github-proxy");
 });

@@ -28,7 +28,7 @@ export function binaryAsset(host: Pick<Host, "os" | "kernelArch">) {
   const arch = ({ x86_64: "amd64", amd64: "amd64", aarch64: "arm64", arm64: "arm64" } as Record<string, string>)[host.kernelArch];
   return arch ? `swallow-agent-linux-${arch}` : undefined;
 }
-export function releaseSupports(release: AgentRelease | undefined, mode: "install" | "migrate-token-to-key" | "upgrade", binary?: string) {
+export function releaseSupports(release: AgentRelease | undefined, mode: "install" | "upgrade", binary?: string) {
   if (!release || !stableRelease(release.version)) return false;
   return ["bootstrap.sh", "checksums.txt", `${mode}.sh`].every((asset) => release.assets.includes(asset)) &&
     (binary ? release.assets.includes(binary) : ["amd64", "arm64"].some((arch) => release.assets.includes(`swallow-agent-linux-${arch}`)));
