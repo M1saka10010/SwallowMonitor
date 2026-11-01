@@ -14,7 +14,8 @@ type Hub struct {
 	mu        sync.RWMutex
 	// agents maps public_id -> the host's latest agent connection. A new
 	// connection evicts (closes) any previous one for the same host.
-	agents map[string]*websocket.Conn
+	agents               map[string]*websocket.Conn
+	maintenanceSupported map[string]bool
 	// overview holds subscribers that receive events for all hosts.
 	overview       map[*subscriber]struct{}
 	eventIPs       map[string]int
@@ -29,10 +30,11 @@ type subscriber struct {
 // NewHub creates an empty hub.
 func NewHub() *Hub {
 	return &Hub{
-		agents:         make(map[string]*websocket.Conn),
-		overview:       make(map[*subscriber]struct{}),
-		eventIPs:       make(map[string]int),
-		messageLimiter: newIPRateLimiter(reportMessagesPerMinute, time.Minute),
+		agents:               make(map[string]*websocket.Conn),
+		maintenanceSupported: make(map[string]bool),
+		overview:             make(map[*subscriber]struct{}),
+		eventIPs:             make(map[string]int),
+		messageLimiter:       newIPRateLimiter(reportMessagesPerMinute, time.Minute),
 	}
 }
 
@@ -48,6 +50,7 @@ func (h *Hub) RevokeAgent(publicID string, revoke func() error) error {
 	h.mu.Lock()
 	c := h.agents[publicID]
 	delete(h.agents, publicID)
+	delete(h.maintenanceSupported, publicID)
 	h.mu.Unlock()
 	if c != nil {
 		_ = c.Close()
@@ -85,6 +88,7 @@ func (h *Hub) AddAgent(publicID string, c *websocket.Conn) (becameOnline bool) {
 	becameOnline = h.agents[publicID] == nil
 	old := h.agents[publicID]
 	h.agents[publicID] = c
+	delete(h.maintenanceSupported, publicID)
 	h.mu.Unlock()
 
 	// Close the evicted connection outside the lock. Its read loop will
@@ -105,6 +109,7 @@ func (h *Hub) RemoveAgent(publicID string, c *websocket.Conn) (becameOffline boo
 	defer h.mu.Unlock()
 	if h.agents[publicID] == c {
 		delete(h.agents, publicID)
+		delete(h.maintenanceSupported, publicID)
 		return true
 	}
 	return false

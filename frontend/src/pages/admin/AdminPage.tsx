@@ -9,7 +9,7 @@ import { binaryAsset, compareVersions, releaseSupports, stableRelease, versionSt
 import { copyText } from "../../utils/clipboard";
 import { errorMessage, formatDateTime } from "../../utils/format";
 
-const panels = [["hosts", "主机管理"], ["tags", "标签管理"], ["settings", "网站设置"], ["notifications", "状态通知"]];
+const panels = [["hosts", "主机管理"], ["maintenance", "维护任务"], ["tags", "标签管理"], ["settings", "网站设置"], ["notifications", "状态通知"]];
 const navLinkClass = ({ isActive }: { isActive: boolean }) => `block min-h-11 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm transition-colors lg:border-b-0 lg:border-l-2 ${isActive ? "border-ink font-medium text-ink" : "border-transparent text-muted hover:text-ink"}`;
 const zoneClass = "grid gap-4 rounded-[10px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_1px_0_var(--edge-light)]";
 

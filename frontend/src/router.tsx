@@ -13,6 +13,7 @@ export function createAppRouter() {
     { path: "admin", lazy: async () => ({ Component: (await import("./pages/admin/AdminPage")).AdminPage }), children: [
       { index: true, lazy: async () => ({ Component: (await import("./pages/admin/AdminPage")).AdminIndex }) },
       { path: "hosts", lazy: async () => ({ Component: (await import("./pages/admin/AdminPage")).HostsPanel }) },
+      { path: "maintenance", lazy: async () => ({ Component: (await import("./pages/maintenance/Maintenance")).MaintenancePage }) },
       { path: "tags", lazy: async () => ({ Component: (await import("./pages/admin/AdminPage")).TagsPanel }) },
       { path: "settings", lazy: async () => ({ Component: (await import("./pages/admin/AdminPage")).SettingsPanel }) },
       { path: "notifications", lazy: async () => ({ Component: (await import("./pages/admin/AdminPage")).NotificationsPanel }) },

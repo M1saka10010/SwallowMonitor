@@ -8,6 +8,7 @@ vi.mock("../../api", () => ({ api: { host: mocks.host, usage: mocks.usage } }));
 vi.mock("../../live/OverviewStreamProvider", () => ({ useOverviewStream: () => ({ subscribe: mocks.subscribe, generation: 0 }) }));
 vi.mock("../../app/ThemeProvider", () => ({ useTheme: () => ({ theme: "light", revision: 0 }) }));
 vi.mock("react-chartjs-2", () => ({ Line: () => null }));
+vi.mock("../../app/AppContext", () => ({ useApp: () => ({ auth: { loggedIn: false } }) }));
 afterEach(cleanup);
 
 it.each([["v0.1.0", "v0.1.0"], ["dev", "dev"], [undefined, "未知"], ["", "未知"], ["  ", "未知"]])("shows reported Agent version %s", async (agentVersion, expected) => {

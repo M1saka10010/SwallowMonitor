@@ -1,7 +1,17 @@
 import { jsonBody, requestJson } from "./client";
+import type { HostMaintenance, MaintenanceEvent, MaintenanceKind, MaintenanceTask } from "./types";
 import type { AgentReleases, AuthState, Host, HostEnrollment, NotificationRule, SiteSettings, Tag, Usage } from "./types";
 
 export const api = {
+  maintenance: (publicId?: string, before?: number, signal?: AbortSignal) => {
+    const query = new URLSearchParams();
+    if (publicId) query.set("publicId", publicId);
+    if (before !== undefined) query.set("before", String(before));
+    return requestJson<{ tasks: MaintenanceTask[]; nextBefore?: number }>(`/api/maintenance?${query}`, { signal });
+  },
+  hostMaintenance: (id: string, signal?: AbortSignal) => requestJson<HostMaintenance>(`/api/hosts/${encodeURIComponent(id)}/maintenance`, { signal }),
+  createMaintenance: (id: string, body: { kind: MaintenanceKind; targetVersion?: string }, signal?: AbortSignal) => requestJson<MaintenanceTask>(`/api/hosts/${encodeURIComponent(id)}/maintenance`, { method: "POST", body: jsonBody(body), signal }),
+  maintenanceDetail: (id: string, after = 0, signal?: AbortSignal) => requestJson<{ task: MaintenanceTask; events: MaintenanceEvent[]; nextAfter: number; hasMore: boolean }>(`/api/maintenance/${encodeURIComponent(id)}?after=${after}`, { signal }),
   agentReleases: (signal?: AbortSignal) => requestJson<AgentReleases>("/api/agent/releases", { signal }),
   me: () => requestJson<AuthState>("/api/me"),
   settings: () => requestJson<SiteSettings>("/api/settings"),

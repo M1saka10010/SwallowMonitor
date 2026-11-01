@@ -4,8 +4,9 @@ import "encoding/json"
 
 // Message types reported by the agent.
 const (
-	TypeSystemInfo  = "system_info"
-	TypeSystemUsage = "system_usage"
+	TypeSystemInfo      = "system_info"
+	TypeSystemUsage     = "system_usage"
+	TypeMaintenanceSync = "maintenance_sync"
 )
 
 // Envelope is the unified packet wrapper used by the agent.

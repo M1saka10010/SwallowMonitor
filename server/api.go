@@ -33,6 +33,32 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 1 && parts[0] == "me":
 		s.apiMe(w, r)
 
+	case len(parts) == 1 && parts[0] == "maintenance":
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.apiListMaintenance(w, r)
+
+	case len(parts) == 2 && parts[0] == "maintenance":
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.apiMaintenanceDetail(w, r, parts[1])
+
+	case len(parts) == 3 && parts[0] == "hosts" && parts[2] == "maintenance":
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method == http.MethodPost {
+			s.apiCreateMaintenance(w, r, parts[1])
+		} else if r.Method == http.MethodGet {
+			s.apiHostMaintenance(w, r, parts[1])
+		} else {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+
 	case len(parts) == 1 && parts[0] == "settings":
 		switch r.Method {
 		case http.MethodGet:

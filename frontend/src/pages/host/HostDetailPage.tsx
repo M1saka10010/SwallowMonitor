@@ -9,6 +9,7 @@ import { useOverviewStream } from "../../live/OverviewStreamProvider";
 import { errorMessage, formatBytes } from "../../utils/format";
 import { buildTimeline, isRangeKey, RANGES } from "./chartData";
 import { useTheme } from "../../app/ThemeProvider";
+import { HostMaintenancePanel } from "../maintenance/Maintenance";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 type Point = { x: number; y: number | null };
@@ -69,6 +70,7 @@ export function HostDetailPage() {
     <dl className="mt-6 overflow-hidden rounded-[10px] border border-line"><div className="-mb-px -mr-px grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{facts.map(([label, value]) => <div key={label as string} className="border-b border-r border-line bg-surface px-3 py-3 shadow-[inset_0_1px_0_var(--edge-light)]"><dt className="text-xs text-muted">{label}</dt><dd className="mt-1 break-words font-mono text-sm tabular-nums">{String(value || "-")}</dd></div>)}</div></dl>
     <div className="my-5"><TabBar label="图表时间范围">{(Object.keys(RANGES) as RangeKey[]).map((range) => <Tab key={range} active={range === key} onClick={() => setParams({ range })}>{RANGES[range].label}</Tab>)}</TabBar></div>
     <div className="grid gap-4 lg:grid-cols-2">{charts.map((chart) => <MetricChart key={chart.metric} {...chart} timeline={timeline} from={windowRange.from} to={windowRange.to} onOpen={() => setZoom(chart)} />)}</div>
+    {host.publicId === publicId && <HostMaintenancePanel key={publicId} host={host} />}
     {zoom && <ChartDialog title={zoom.title} onClose={() => setZoom(null)}><Line key={`${theme}-${revision}`} data={chartModel(timeline, zoom.metric)} options={makeChartOptions(zoom.metric, windowRange.from, windowRange.to)} /></ChartDialog>}
   </section>;
 }

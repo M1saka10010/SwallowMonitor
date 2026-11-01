@@ -1,4 +1,9 @@
 export interface AgentRelease { version: string; assets: string[] }
+export type MaintenanceKind = "agent_upgrade" | "system_update";
+export type MaintenanceStatus = "queued" | "delivered" | "accepted" | "running" | "verifying" | "succeeded" | "failed" | "unknown" | "expired";
+export interface MaintenanceTask { id: string; publicId: string; kind: MaintenanceKind; targetVersion: string; status: MaintenanceStatus; createdBy: string; createdAt: number; updatedAt: number; lastSeq: number }
+export interface MaintenanceEvent { taskId: string; seq: number; status: MaintenanceStatus; message: string; createdAt: number }
+export interface HostMaintenance { supported: boolean; online: boolean; tasks: MaintenanceTask[] }
 export interface AgentReleases { releases: AgentRelease[]; latestVersion: string; checkedAt: number; stale: boolean; error?: string }
 
 export interface AuthState {

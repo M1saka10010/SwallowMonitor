@@ -142,7 +142,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		current := s.hub.agents[publicID] == conn
 		s.hub.mu.RUnlock()
 		if current {
-			s.dispatch(publicID, raw)
+			s.dispatchConn(publicID, conn, raw)
 		}
 		s.hub.lifecycle.RUnlock()
 		if !current {
@@ -151,7 +151,9 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) dispatch(publicID string, raw []byte) {
+func (s *Server) dispatch(publicID string, raw []byte) { s.dispatchConn(publicID, nil, raw) }
+
+func (s *Server) dispatchConn(publicID string, conn *websocket.Conn, raw []byte) {
 	var env model.Envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
 		s.debugf("report: bad envelope: %v", err)
@@ -159,6 +161,48 @@ func (s *Server) dispatch(publicID string, raw []byte) {
 	}
 
 	switch env.Type {
+	case model.TypeMaintenanceSync:
+		if conn == nil {
+			return
+		}
+		var in struct {
+			Supported bool                     `json:"supported"`
+			Events    []store.MaintenanceEvent `json:"events"`
+		}
+		if json.Unmarshal(env.Data, &in) != nil || len(in.Events) > 16 {
+			return
+		}
+		acks := make([]map[string]any, 0, len(in.Events))
+		s.hub.mu.Lock()
+		if s.hub.agents[publicID] != conn {
+			s.hub.mu.Unlock()
+			return
+		}
+		s.hub.maintenanceSupported[publicID] = in.Supported
+		s.hub.mu.Unlock()
+		for _, ev := range in.Events {
+			if ev.TaskID == "" {
+				continue
+			}
+			if _, err := s.store.ApplyMaintenanceEvent(publicID, ev); err != nil {
+				continue
+			}
+			acks = append(acks, map[string]any{"taskId": ev.TaskID, "seq": ev.Seq})
+		}
+		data := map[string]any{"acks": acks}
+		if in.Supported {
+			if task, err := s.store.PendingMaintenance(publicID); err == nil && task != nil {
+				data["task"] = task
+			}
+		}
+		if err := conn.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			_ = conn.Close()
+			return
+		}
+		if err := conn.WriteJSON(map[string]any{"type": model.TypeMaintenanceSync, "data": data}); err != nil {
+			_ = conn.Close()
+		}
+
 	case model.TypeSystemInfo:
 		var info model.SystemInfo
 		if err := json.Unmarshal(env.Data, &info); err != nil {

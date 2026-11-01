@@ -41,6 +41,9 @@ func (s *Store) Close() error {
 
 func (s *Store) migrate() error {
 	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS maintenance_tasks (cursor INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, public_id TEXT NOT NULL, kind TEXT NOT NULL, target_version TEXT NOT NULL, status TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_seq INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS maintenance_active ON maintenance_tasks(public_id) WHERE status NOT IN ('succeeded','failed','expired')`,
+		`CREATE TABLE IF NOT EXISTS maintenance_events (task_id TEXT NOT NULL, seq INTEGER NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(task_id,seq))`,
 		`CREATE TABLE IF NOT EXISTS hosts (
 			public_id TEXT PRIMARY KEY,
 			public_key TEXT UNIQUE,
