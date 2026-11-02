@@ -125,5 +125,6 @@ it("explains stale release data and release errors", async () => {
 it("localizes delivered status and task kinds without claiming acknowledgment", async () => {
   mocks.maintenance.mockResolvedValue({ tasks: [{ ...task, status: "delivered" }] });
   render(<MaintenancePage />);
-  expect(await screen.findByText(/更新系统软件包.*已发起投递，等待确认/)).toBeInTheDocument();
+  expect(await screen.findByText("已发起投递，等待确认")).toBeInTheDocument();
+  expect(screen.getByText(/更新系统软件包/)).toBeInTheDocument();
 });

@@ -46,3 +46,5 @@ export function ConfirmDialog({ title, detail, confirmLabel = "确认删除", on
 }
 
 export const fieldClass = "min-h-11 w-full rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-line-strong";
+
+export const zoneClass = "grid gap-4 rounded-[10px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_1px_0_var(--edge-light)]";

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { NavLink, Navigate, Outlet } from "react-router-dom";
 import { api } from "../../api";
 import type { AgentReleases, Host, HostEnrollment, NotificationRule, Tag } from "../../api/types";
-import { Button, ConfirmDialog, EmptyState, PageState, StatusBadge, fieldClass } from "../../components/ui";
+import { Button, ConfirmDialog, EmptyState, PageState, StatusBadge, fieldClass, zoneClass } from "../../components/ui";
 import { useApp } from "../../app/AppContext";
 import { enrollmentCommand, isGithubProxy, upgradeCommand } from "../../utils/enrollment";
 import { binaryAsset, compareVersions, releaseSupports, stableRelease, versionStatus } from "../../utils/releases";
@@ -11,7 +11,6 @@ import { errorMessage, formatDateTime } from "../../utils/format";
 
 const panels = [["hosts", "主机管理"], ["maintenance", "维护任务"], ["tags", "标签管理"], ["settings", "网站设置"], ["notifications", "状态通知"]];
 const navLinkClass = ({ isActive }: { isActive: boolean }) => `block min-h-11 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm transition-colors lg:border-b-0 lg:border-l-2 ${isActive ? "border-ink font-medium text-ink" : "border-transparent text-muted hover:text-ink"}`;
-const zoneClass = "grid gap-4 rounded-[10px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_1px_0_var(--edge-light)]";
 
 export function AdminPage() {
   const { auth } = useApp();
@@ -88,7 +87,7 @@ export function HostsPanel() {
       {(releaseError || releases?.stale) && <p className="text-sm text-danger">{releases?.releases.length ? "仅供参考：使用缓存发布列表，无法确认是否最新。" : "发布列表不可用，无法生成命令。"}</p>}
       <div><Button size="sm" disabled={releaseLoading} onClick={() => setReleaseRefresh((value) => value + 1)}>重试发布列表</Button></div>
       {!releaseLoading && !releaseError && !releases?.releases.length && <p className="text-sm text-muted">暂无正式发布版本。</p>}
-      <label className="text-sm text-muted">目标 Agent release<span className="relative mt-1 block"><select aria-label="目标 Agent release" className={`${fieldClass} appearance-none pr-9 font-mono`} value={agentRelease} onChange={(event) => { releaseChosen.current = true; setAgentRelease(event.target.value); setCopyMessage(""); setUpgrading(""); }}><option value="">选择正式发布版本</option>{agentRelease && !target && <option value={agentRelease} disabled>{agentRelease}（已不可用，请重新选择）</option>}{releases?.releases.filter((item) => stableRelease(item.version)).map((item) => <option key={item.version} value={item.version}>{item.version}</option>)}</select><span aria-hidden="true" className="pointer-events-none absolute right-3 top-2 text-muted">⌄</span></span></label>
+      <label className="text-sm text-muted">目标 Agent release<span className="mt-1 block"><select aria-label="目标 Agent release" className={`${fieldClass} pr-9 font-mono`} value={agentRelease} onChange={(event) => { releaseChosen.current = true; setAgentRelease(event.target.value); setCopyMessage(""); setUpgrading(""); }}><option value="">选择正式发布版本</option>{agentRelease && !target && <option value={agentRelease} disabled>{agentRelease}（已不可用，请重新选择）</option>}{releases?.releases.filter((item) => stableRelease(item.version)).map((item) => <option key={item.version} value={item.version}>{item.version}</option>)}</select></span></label>
       {target && !releaseSupports(target, "install") && <p className="text-sm text-muted">目标版本缺少新安装所需资产，请选择其他版本或手动安装。</p>}
       <label className="text-sm text-muted">GitHub HTTPS 代理前缀（可选）<input className={`${fieldClass} mt-1 font-mono`} value={proxy} disabled={!proxySupported} aria-invalid={!proxyValid} onChange={(event) => { setProxy(event.target.value); setCopyMessage(""); }} /></label>
       {!proxySupported && <p className="text-sm text-muted">此版本无 upgrade.sh，代理参数不受支持，已禁用代理；使用直连，不发送未知参数。</p>}
