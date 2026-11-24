@@ -105,8 +105,6 @@ body::after {
 
 ::selection { background: var(--text); color: var(--canvas); }
 
-button, input, select, textarea { font: inherit; }
-
 input[type="checkbox"] {
   appearance: none;
   width: 14px;

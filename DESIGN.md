@@ -74,7 +74,7 @@ SwallowMonitor 应该像一页装帧考究的账本：纸一样安静的底子�
 ## 6. Implementation Practices
 
 - **Token：** CSS variables 定义在 `:root` 与 `:root[data-theme="dark"]`，经 `@theme inline` 映射到 Tailwind CSS 4（token 名 → `bg-*`/`text-*` utility）。
-- **样式分工：** `frontend/src/styles.css` 只放 Tailwind 入口、token、噪点纹理、焦点环等基础设施；组件样式全部用 utility class；不用 CSS Modules、styled-components、静态 inline style。运行时计算值（进度条宽度、canvas 尺寸）可用动态 style。
+- **样式分工：** `frontend/src/styles.css` 只放 Tailwind 入口、token、噪点纹理、焦点环等基础设施；组件样式全部用 utility class；不用 CSS Modules、styled-components、静态 inline style。控件字体继承交给 Tailwind preflight，基础层不得再用未分层的 `font` 简写覆盖 utility 字号。运行时计算值（进度条宽度、canvas 尺寸）可用动态 style。
 - **分区网格：** 卡片网格用 `grid gap-4` 留缝；连续细线带（事实带、列表）用容器 `border border-line` + 内层 `grid -mr-px -mb-px`、每行/格 `border-r border-b border-line bg-surface`——末行不满时留白处是干净画布，不露底色。
 - **字体与资源：** 不依赖任何外部字体、图片、CDN；噪点纹理必须是内联 data URI；Chart.js 打入生产资源。
 - **图表：** `animation: false`、`pointRadius: 0`、`tension: 0`；网格线用 `--border`、刻度用 `--text-muted`、图例用 `--text`；主题切换时重建图表实例以重取 token。
@@ -115,7 +115,7 @@ SwallowMonitor 应该像一页装帧考究的账本：纸一样安静的底子�
 
 主机详情事实带增加“Agent 版本”，沿用等宽文字与细线格，不增加状态颜色；未上报或空版本显示“未知”，本地开发构建显示 `dev`。版本是设备自报信息，不作为安全验证依据。
 
-维护任务界面（后台「维护任务」页与主机详情维护面板）沿用后台容器与连续细线带列表：任务状态以 ≤8px 状态点加文字呈现，成功/失败/未知/过期分别使用 success/danger/warning/offline 语义色，排队与执行中等进行中状态保持墨色；任务 ID、目标版本、时间戳与事件日志一律等宽字体，事件日志块使用 surface-muted 底。下拉控件只保留全局自绘细箭头，不再叠加字符箭头。
+维护任务界面（后台「维护任务」页与主机详情维护面板）沿用后台容器与连续细线带列表：任务状态以 ≤8px 状态点加文字呈现，成功/失败/未知/过期分别使用 success/danger/warning/offline 语义色，排队与执行中等进行中状态保持墨色；任务 ID、目标版本、时间戳与事件日志一律等宽字体，事件日志块使用 surface-muted 底。维护区标题使用 16px 无衬线；目标版本标签 12px，下拉与操作按钮统一 32px 高、13px 字，列表行内操作沿用 28px / 11px，禁止混入 44px 下拉或 18px 标题。主面板与任务详情内部间距 12px，任务详情内边距 12px；任务行水平内边距 12px、垂直内边距 8px，事件日志最大高度 320px。下拉控件只保留全局自绘细箭头，不再叠加字符箭头。
 
 1. 核对现有 API、SSE、OAuth 与公钥挑战认证协议，页面结构不变。
 2. 重写 `styles.css` 的 token 层：纸/墨双主题中立色阶、图表墨阶、语义色、噪点纹理、焦点环；跑通主题切换。

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import type { AgentReleases, Host, HostMaintenance, MaintenanceEvent, MaintenanceKind, MaintenanceStatus, MaintenanceTask } from "../../api/types";
 import { useApp } from "../../app/AppContext";
-import { Button, ConfirmDialog, EmptyState, PageState, fieldClass, zoneClass } from "../../components/ui";
+import { Button, ConfirmDialog, EmptyState, PageState } from "../../components/ui";
 import { formatDateTime } from "../../utils/format";
 import { binaryAsset, compareVersions, releaseSupports } from "../../utils/releases";
 
@@ -46,19 +46,19 @@ function TaskDetail({ id }: { id: string }) {
     after.current = result.nextAfter;
     return result.hasMore && advanced ? 0 : 5000;
   }, [id]));
-  return <section aria-label="任务详情" className={zoneClass}>
+  return <section aria-label="任务详情" className="grid gap-3 rounded-[10px] border border-line bg-surface p-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_1px_0_var(--edge-light)]">
     <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold">任务 <span className="font-mono">{id}</span>{task && <>· <TaskStatus status={task.status} /></>}</h3>
-    {task && <p className="text-sm text-muted">创建者 {task.createdBy} · 更新 <time dateTime={isoTime(task.updatedAt)} className="font-mono text-xs">{formatDateTime(task.updatedAt)}</time></p>}
+    {task && <p className="text-xs text-muted">创建者 {task.createdBy} · 更新 <time dateTime={isoTime(task.updatedAt)} className="font-mono">{formatDateTime(task.updatedAt)}</time></p>}
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-    <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-muted p-3 font-mono text-xs">{events.map(event => <span key={event.seq}>{formatDateTime(event.createdAt)} [{statusLabels[event.status]}] {event.message}{"\n"}</span>)}</pre>
+    <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-muted p-3 font-mono text-xs leading-5">{events.map(event => <span key={event.seq}>{formatDateTime(event.createdAt)} [{statusLabels[event.status]}] {event.message}{"\n"}</span>)}</pre>
   </section>;
 }
 
 function TaskList({ tasks, onSelect }: { tasks: MaintenanceTask[]; onSelect: (id: string) => void }) {
-  return <ul className="divide-y divide-line overflow-hidden rounded-[10px] border border-line">{tasks.map(task => <li key={task.id} className="flex min-h-14 flex-wrap items-center justify-between gap-x-4 gap-y-2 bg-surface px-4 py-3 shadow-[inset_0_1px_0_var(--edge-light)]">
+  return <ul className="divide-y divide-line overflow-hidden rounded-[10px] border border-line">{tasks.map(task => <li key={task.id} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 bg-surface px-3 py-2 shadow-[inset_0_1px_0_var(--edge-light)]">
     <div className="min-w-0">
       <p className="text-sm"><span className="font-medium">{kindLabels[task.kind]}{task.targetVersion && <> <span className="font-mono">{task.targetVersion}</span></>}</span><span className="text-faint"> · </span><span className="font-mono text-xs text-muted">{task.publicId}</span></p>
-      <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1"><TaskStatus status={task.status} /><time dateTime={isoTime(task.createdAt)} className="font-mono text-xs text-faint">{formatDateTime(task.createdAt)}</time></p>
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1"><TaskStatus status={task.status} /><time dateTime={isoTime(task.createdAt)} className="font-mono text-xs text-faint">{formatDateTime(task.createdAt)}</time></p>
     </div>
     <Button size="sm" className="shrink-0" onClick={() => onSelect(task.id)}>查看任务 {task.id}</Button>
   </li>)}</ul>;
@@ -66,8 +66,8 @@ function TaskList({ tasks, onSelect }: { tasks: MaintenanceTask[]; onSelect: (id
 
 function MaintenanceList() {
   const [before, setBefore] = useState<number>();
-  return <section className="space-y-4">
-    <h2 className="text-lg font-semibold">维护任务</h2>
+  return <section className="space-y-3">
+    <h2 className="text-base font-semibold">维护任务</h2>
     <p className="text-sm text-muted">查看各主机维护任务的状态、阶段和日志；新任务在主机详情页发起。</p>
     {before !== undefined && <Button onClick={() => setBefore(undefined)}>最新任务</Button>}
     <TaskPage key={before ?? "latest"} before={before} onNext={setBefore} />
@@ -84,7 +84,7 @@ function TaskPage({ before, onNext }: { before?: number; onNext: (before: number
     if (!signal.aborted) { setTasks(result.tasks); setNext(result.nextBefore); setLoaded(true); }
     return before === undefined ? 5000 : -1;
   }, [before]));
-  return <div className="space-y-4">
+  return <div className="space-y-3">
     {error && <p role="alert" className="text-sm text-danger">{error}</p>}
     {!loaded && !error && <PageState message="正在加载维护任务…" />}
     {loaded && !tasks.length && <EmptyState title="暂无维护任务" detail="从主机详情页发起 Agent 升级或系统软件包更新后，任务会登记在这里。" />}
@@ -150,8 +150,8 @@ function HostControls({ host }: { host: Host }) {
     } catch { if (!controller.signal.aborted) setUncertain(true); }
     finally { if (!controller.signal.aborted) { revision.current++; setPending(false); submitting.current = false; } }
   };
-  return <section className={`my-6 ${zoneClass}`} aria-label="主机维护">
-    <h2 className="text-lg font-semibold">主机维护</h2>
+  return <section className="my-5 grid gap-3 rounded-[10px] border border-line bg-surface p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_1px_0_var(--edge-light)]" aria-label="主机维护">
+    <h2 className="text-base font-semibold">主机维护</h2>
     <p className="text-sm text-muted">仅支持在线且具备维护能力的主机；进行中或状态未知的任务会阻止新任务。</p>
     {!state && !error && <p className="text-sm text-muted">正在确认主机维护能力…</p>}
     {error ? <p role="alert" className="text-sm text-danger">{error} 主机维护状态未确认，暂不可创建任务。</p> : state && (!state.supported ? <p className="text-sm text-muted">此主机不支持远程维护。</p> : (!state.online || !host.online) && <p className="text-sm text-muted">主机离线，暂不可创建维护任务。</p>)}
@@ -160,8 +160,8 @@ function HostControls({ host }: { host: Host }) {
     {releaseError && <p role="alert" className="text-sm text-danger">{releaseError}</p>}
     {uncertain && <p role="alert" className="text-sm text-danger">请求结果不确定，任务可能已创建。不会自动重试；请先核对任务记录和主机状态，勿重复提交。</p>}
     <div className="flex flex-wrap items-end gap-2">
-      <label className="grid w-56 max-w-full gap-1 text-sm text-muted">Agent 目标版本
-        <select className={`${fieldClass} pr-9 font-mono`} value={target} disabled={disabled || !target} onChange={event => setVersion(event.target.value)}>
+      <label className="grid w-52 max-w-full gap-1 text-xs text-muted">Agent 目标版本
+        <select className="min-h-8 w-full rounded-md border border-line bg-canvas px-3 py-1 pr-9 font-mono text-[13px] text-ink focus:border-line-strong" value={target} disabled={disabled || !target} onChange={event => setVersion(event.target.value)}>
           {!target && <option value="">无可用的更新正式版</option>}
           {versions.map(value => <option key={value}>{value}</option>)}
         </select>
